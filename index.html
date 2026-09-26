@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Surrounding — backgrounds for 3D models</title>
+  </head>
+  <body>
+    <div class="app">
+      <header class="app__header">
+        <h1>AI Surrounding</h1>
+        <p>AI background generation for 3D models</p>
+      </header>
+
+      <main class="app__main">
+        <aside class="panel">
+          <section class="panel__section">
+            <h2 class="panel__title">Model</h2>
+            <div class="dropzone" id="dropzone">
+              <input type="file" accept=".glb,.gltf" hidden />
+              <svg class="dropzone__icon" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 15V4m0 0 4 4m-4-4L8 8" />
+                <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+              </svg>
+              <p class="dropzone__text">Drag &amp; drop a model here<br />or click to browse</p>
+              <p class="dropzone__hint">GLB / GLTF</p>
+              <p class="dropzone__error" hidden></p>
+            </div>
+          </section>
+
+          <section class="panel__section">
+            <h2 class="panel__title">Prompt</h2>
+            <textarea class="prompt" id="prompt" rows="5"
+              placeholder="Describe the surroundings"></textarea>
+          </section>
+
+          <button class="generate" id="generate" disabled>Generate background</button>
+        </aside>
+
+        <section class="scene" id="scene">
+          <div class="scene__hint">
+            <p class="scene__hint-title">No model loaded</p>
+            <p class="scene__hint-text">Load a GLB file to see it here.<br />Drag with the mouse to set the camera angle.</p>
+          </div>
+          <div class="scene__hud" hidden>
+            <span>Azimuth <b class="hud__azimuth">0°</b></span>
+            <span>Elevation <b class="hud__elevation">0°</b></span>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="modal-root"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

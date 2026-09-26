@@ -31,9 +31,17 @@
           </section>
 
           <section class="panel__section">
-            <h2 class="panel__title">Prompt</h2>
+            <h2 class="panel__title">Prompt <span class="panel__optional">optional</span></h2>
             <textarea class="prompt" id="prompt" rows="5"
-              placeholder="Describe the surroundings"></textarea>
+              placeholder="Describe the surroundings — added to the base scene prompt"></textarea>
+          </section>
+
+          <section class="panel__section">
+            <h2 class="panel__title">Object height</h2>
+            <div class="height-field">
+              <input class="height-input" id="object-height" type="number" min="1" step="10" value="600" />
+              <span class="height-unit">mm — real-world size, used to scale the model onto the background</span>
+            </div>
           </section>
 
           <button class="generate" id="generate" disabled>Generate background</button>

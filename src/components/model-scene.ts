@@ -8,10 +8,13 @@ export interface CameraAngle {
   elevation: number
 }
 
+const PLATE_SIZE = 1024
+
 export interface ModelScene {
   loadModel(file: File): Promise<boolean>
   getCameraAngle(): CameraAngle
   captureView(): string
+  capturePlate(): string
 }
 
 export function createModelScene(root: HTMLElement): ModelScene {
@@ -26,7 +29,7 @@ export function createModelScene(root: HTMLElement): ModelScene {
   canvas.className = 'scene__canvas'
   root.prepend(canvas)
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.toneMapping = THREE.ACESFilmicToneMapping
 
@@ -50,7 +53,8 @@ export function createModelScene(root: HTMLElement): ModelScene {
   directional.position.set(3, 6, 4)
   scene.add(directional, new THREE.HemisphereLight(0xffffff, 0xdde3ec, 0.5))
 
-  scene.add(new THREE.GridHelper(10, 20, 0xcfd4dc, 0xe6e9ef))
+  const grid = new THREE.GridHelper(10, 20, 0xcfd4dc, 0xe6e9ef)
+  scene.add(grid)
 
   new ResizeObserver(resize).observe(root)
 
@@ -156,5 +160,29 @@ export function createModelScene(root: HTMLElement): ModelScene {
     return canvas.toDataURL('image/png')
   }
 
-  return { loadModel, getCameraAngle, captureView }
+  function capturePlate(): string {
+    const background = scene.background
+    const pixelRatio = renderer.getPixelRatio()
+    const size = renderer.getSize(new THREE.Vector2())
+    const aspect = camera.aspect
+
+    scene.background = null
+    grid.visible = false
+    renderer.setPixelRatio(1)
+    renderer.setSize(PLATE_SIZE, PLATE_SIZE, false)
+    camera.aspect = 1
+    camera.updateProjectionMatrix()
+    renderer.render(scene, camera)
+    const dataUrl = canvas.toDataURL('image/png')
+
+    scene.background = background
+    grid.visible = true
+    renderer.setPixelRatio(pixelRatio)
+    renderer.setSize(size.width, size.height, false)
+    camera.aspect = aspect
+    camera.updateProjectionMatrix()
+    return dataUrl
+  }
+
+  return { loadModel, getCameraAngle, captureView, capturePlate }
 }

@@ -14,22 +14,49 @@ export interface ComposeParams {
 
 export interface ComposeResult {
   url: string
+  composite_url: string
   seed: number
   seconds: number
 }
 
-async function post<T>(path: string, body: FormData): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, { method: 'POST', body })
+export interface TemplateInfo {
+  bg: string
+  depth: string
+  anchor: number[]
+  px_per_m: number
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (!BASE) {
+    throw new Error(
+      'VITE_API_URL is not set: copy .env.example to .env.local, put the Modal app URL there and restart the dev server.',
+    )
+  }
+  const response = await fetch(`${BASE}${path}`, init)
   if (!response.ok) {
     const details = await response.text().catch(() => '')
     throw new Error(`Backend responded with ${response.status}: ${details.slice(0, 200)}`)
   }
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      `Expected JSON from the backend but received ${contentType || 'no content type'} — check that VITE_API_URL points at the Modal app URL.`,
+    )
+  }
   return (await response.json()) as T
+}
+
+function post<T>(path: string, body: FormData): Promise<T> {
+  return request(path, { method: 'POST', body })
 }
 
 export const api = {
   assetUrl(path: string): string {
     return `${BASE}${path}`
+  },
+
+  templates(): Promise<Record<string, TemplateInfo>> {
+    return request('/api/templates')
   },
 
   genBackgrounds(prompt: string, count = 4): Promise<Candidate[]> {

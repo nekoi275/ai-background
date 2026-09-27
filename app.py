@@ -251,11 +251,18 @@ def api():
         sb = io.BytesIO(); scene.save(sb, "PNG")
         out = Image.open(io.BytesIO(Model().inpaint_ring.remote(
             sb.getvalue(), mb.getvalue(), p.get("prompt", ""), seed)))
-        out = add_shadow(out, plate_r, px, py)
         arr = np.array(out).astype(np.float32) + np.random.default_rng(seed).normal(0, 2.5, (H, W, 1))
         out = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+        m = np.array(mask).astype(np.float32)[..., None] / 255.0
+        final = np.array(out).astype(np.float32) * m + np.array(scene).astype(np.float32) * (1 - m)
+        out = Image.fromarray(np.clip(final, 0, 255).astype(np.uint8))
+        out = add_shadow(out, plate_r, px, py)
         buf = io.BytesIO(); out.save(buf, "JPEG", quality=92)
         name = f"results/{uuid.uuid4().hex[:8]}.jpg"
-        return {"url": save(name, buf.getvalue()), "seed": seed, "seconds": round(time.time() - t0, 1)}
+        name_c = f"results/{uuid.uuid4().hex[:8]}_composite.jpg"
+        cb = io.BytesIO(); Image.fromarray(np.array(scene)).save(cb, "JPEG", quality=92)
+        save(name_c, cb.getvalue())
+        return {"url": save(name, buf.getvalue()), "composite_url": f"/asset/{name_c}",
+                "seed": seed, "seconds": round(time.time() - t0, 1)}
 
     return fast

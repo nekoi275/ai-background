@@ -52,6 +52,10 @@ export function setupResultModal(root: HTMLElement): ResultModal {
               <img class="modal__image" data-role="result" alt="Generated scene" />
               <figcaption>Generated scene</figcaption>
             </figure>
+            <figure class="modal__figure">
+              <img class="modal__image" data-role="composite" alt="Composite before inpainting" />
+              <figcaption>Before inpaint — product must be intact here</figcaption>
+            </figure>
           </div>
           <dl class="modal__meta">
             <dt>Model</dt><dd data-meta="file"></dd>
@@ -75,6 +79,7 @@ export function setupResultModal(root: HTMLElement): ResultModal {
   const errorText = root.querySelector<HTMLElement>('.modal__error-text')!
   const snapshotImage = root.querySelector<HTMLImageElement>('[data-role="snapshot"]')!
   const resultImage = root.querySelector<HTMLImageElement>('[data-role="result"]')!
+  const compositeImage = root.querySelector<HTMLImageElement>('[data-role="composite"]')!
 
   const sections: Record<Section, HTMLElement> = {
     status: root.querySelector<HTMLElement>('.modal__status')!,
@@ -133,6 +138,8 @@ export function setupResultModal(root: HTMLElement): ResultModal {
       meta('seed').textContent = String(data.result.seed)
       meta('time').textContent = `${data.result.seconds}s`
       meta('prompt').textContent = data.meta.prompt || '— (base prompt only)'
+      compositeImage.src = data.result.composite_url ? api.assetUrl(data.result.composite_url) : ''
+      compositeImage.parentElement!.hidden = !data.result.composite_url
       showSection('result')
     },
 
@@ -145,6 +152,7 @@ export function setupResultModal(root: HTMLElement): ResultModal {
       overlay.hidden = true
       snapshotImage.src = ''
       resultImage.src = ''
+      compositeImage.src = ''
     },
   }
 

@@ -38,8 +38,10 @@ cp .env.example .env.local
 
 Flow used by the frontend:
 
-1. `POST /api/gen-backgrounds` (`n`, `prompt`) → background candidates
-2. user picks one → `POST /api/make-template` (`file`, `tid`) → depth map + template
+1. If a calibrated template exists (`GET /api/templates`; the most recent
+   one wins), “Generate” composes straight away
+2. Otherwise: `POST /api/gen-backgrounds` → user picks one →
+   `POST /api/make-template` → compose
 3. `POST /api/compose` (model plate PNG with alpha, params JSON with
    `template_id`, `height_mm`, `prompt`, optional `seed`) → final image.
    The scene is regenerated from the template's depth map on every call —

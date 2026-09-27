@@ -15,6 +15,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -272,10 +276,6 @@ body {
   justify-content: center;
   padding: 24px;
   background: rgb(16 24 40 / 0.45);
-}
-
-.modal-overlay[hidden] {
-  display: none;
 }
 
 .modal {

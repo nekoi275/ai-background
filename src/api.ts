@@ -52,7 +52,7 @@ function post<T>(path: string, body: FormData): Promise<T> {
 
 export const api = {
   assetUrl(path: string): string {
-    return `${BASE}${path}`
+    return path.startsWith('/') ? `${BASE}${path}` : path
   },
 
   templates(): Promise<Record<string, TemplateInfo>> {

@@ -1,4 +1,4 @@
-import io, json, os, random, time, uuid
+import base64, io, json, os, random, time, uuid
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -124,6 +124,7 @@ class Model:
 def tpath(*p): return os.path.join("/assets", *p)
 
 def read_templates():
+    assets_vol.reload()
     if not os.path.exists(tpath("templates.json")): return {}
     return json.load(open(tpath("templates.json")))
 
@@ -174,6 +175,7 @@ def api():
 
     @fast.get("/asset/{name:path}")
     def asset(name: str):
+        assets_vol.reload()
         p = tpath(name)
         if not os.path.exists(p): raise HTTPException(404)
         return FileResponse(p)
@@ -261,8 +263,11 @@ def api():
         name = f"results/{uuid.uuid4().hex[:8]}.jpg"
         name_c = f"results/{uuid.uuid4().hex[:8]}_composite.jpg"
         cb = io.BytesIO(); Image.fromarray(np.array(scene)).save(cb, "JPEG", quality=92)
-        save(name_c, cb.getvalue())
-        return {"url": save(name, buf.getvalue()), "composite_url": f"/asset/{name_c}",
+        save(name, buf.getvalue()); save(name_c, cb.getvalue())
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        c64 = base64.b64encode(cb.getvalue()).decode()
+        return {"url": f"data:image/jpeg;base64,{b64}",
+                "composite_url": f"data:image/jpeg;base64,{c64}",
                 "seed": seed, "seconds": round(time.time() - t0, 1)}
 
     return fast

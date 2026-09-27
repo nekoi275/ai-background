@@ -1,6 +1,6 @@
 import base64, io, json, os, random, time, uuid
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -9,11 +9,14 @@ import modal
 
 DEPTH_FLIP = False
 
-BG_PROMPT = ("interior of a vast empty european logistics warehouse, large clean polished concrete floor "
-             "in the foreground, high ceiling with skylights, bright natural daylight, "
-             "steel columns and palletized goods far away in the background, "
-             "eye level photo, photorealistic, professional photography")
-NEG = "people, person, text, watermark, logo, cartoon, painting, illustration, low quality"
+BG_MODEL = "SG161222/RealVisXL_V4.0"
+
+BG_PROMPT = ("interior of a spacious empty industrial warehouse, large smooth polished concrete floor, "
+             "high ceiling, distant steel columns, soft diffused daylight, clean minimal space, "
+             "eye level photo, photorealistic, professional product photography")
+NEG = ("people, person, text, watermark, logo, cartoon, painting, illustration, low quality, "
+       "clutter, shelves, racks, boxes, pallets, forklift, machinery, "
+       "cluttered background, highly detailed background")
 
 app = modal.App("poc-bg")
 
@@ -37,8 +40,7 @@ class Model:
         from diffusers import StableDiffusionXLPipeline
         self.torch = torch
         self.bg = StableDiffusionXLPipeline.from_pretrained(
-            "stabilityai/stable-diffusion-xl-base-1.0",
-            torch_dtype=torch.float16, variant="fp16", use_safetensors=True).to("cuda")
+            BG_MODEL, torch_dtype=torch.float16, use_safetensors=True).to("cuda")
 
     def _cn(self):
         if getattr(self, "cn_pipe", None) is None:
@@ -94,6 +96,8 @@ class Model:
     @modal.method()
     def gen_scene(self, seed, user_prompt, depth_png):
         depth = Image.open(io.BytesIO(depth_png)).convert("RGB")
+        if DEPTH_FLIP:
+            depth = ImageOps.invert(depth)
         img = self._gen(seed, user_prompt, depth_img=depth)
         buf = io.BytesIO(); img.save(buf, "PNG")
         return buf.getvalue()
@@ -109,14 +113,16 @@ class Model:
         return buf.getvalue()
 
     @modal.method()
-    def inpaint_ring(self, scene_png, mask_png, user_prompt, seed):
+    def inpaint_floor(self, bg_png, mask_png, seed, strength=0.95):
         g = self.torch.Generator("cuda").manual_seed(seed)
-        prompt = BG_PROMPT + ", seamless blend, " + (user_prompt or "")
-        img = self._inp()(prompt=prompt, negative_prompt=NEG,
-                          image=Image.open(io.BytesIO(scene_png)).convert("RGB"),
-                          mask_image=Image.open(io.BytesIO(mask_png)).convert("L"),
-                          width=1024, height=1024, num_inference_steps=24,
-                          guidance_scale=6.0, generator=g).images[0]
+        img = self._inp()(
+            prompt="empty open space, smooth polished concrete floor, plain clean background",
+            negative_prompt=(NEG + ", objects, clutter, column, columns, pillar, "
+                             "pipe, pole, beam, structure, scaffolding"),
+            image=Image.open(io.BytesIO(bg_png)).convert("RGB"),
+            mask_image=Image.open(io.BytesIO(mask_png)).convert("L"),
+            width=1024, height=1024, num_inference_steps=24,
+            guidance_scale=6.0, strength=strength, generator=g).images[0]
         buf = io.BytesIO(); img.save(buf, "PNG")
         return buf.getvalue()
 
@@ -137,18 +143,22 @@ def save(name, data: bytes):
 
 def add_shadow(scene, plate_r, px, py):
     a = np.array(plate_r)[:, :, 3]
-    cols = np.where(a.max(axis=0) > 8)[0]; rows = np.where(a.max(axis=1) > 8)[0]
+    rows = np.where((a > 8).any(axis=1))[0]
+    h = rows.max() - rows.min() + 1
+    bottom = a[max(0, rows.max() - max(2, h // 20)) : rows.max() + 1]
+    cols = np.where((bottom > 8).any(axis=0))[0]
+    if len(cols) == 0: cols = np.where((a > 8).any(axis=0))[0]
     cx = px + (cols.min() + cols.max()) / 2
     base_y = py + rows.max()
     bw = float(cols.max() - cols.min())
     sh = Image.new("L", scene.size, 0)
     d = ImageDraw.Draw(sh)
-    d.ellipse([cx - bw * 0.6, base_y - bw * 0.10, cx + bw * 0.6, base_y + bw * 0.10], fill=150)
+    d.ellipse([cx - bw * 0.6, base_y - bw * 0.13, cx + bw * 0.6, base_y + bw * 0.13], fill=150)
     sh = sh.filter(ImageFilter.GaussianBlur(bw * 0.05))
     d2 = ImageDraw.Draw(sh)
-    d2.ellipse([cx - bw * 0.42, base_y - bw * 0.05, cx + bw * 0.42, base_y + bw * 0.05], fill=170)
+    d2.ellipse([cx - bw * 0.42, base_y - bw * 0.06, cx + bw * 0.42, base_y + bw * 0.06], fill=170)
     sh = sh.filter(ImageFilter.GaussianBlur(bw * 0.02))
-    s = np.array(sh).astype(np.float32) / 255.0 * 0.55
+    s = np.array(sh).astype(np.float32) / 255.0 * 0.62
     arr = np.array(scene).astype(np.float32)
     arr[..., :3] *= (1 - s)[..., None]
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
@@ -226,48 +236,41 @@ def api():
         return Response(buf.getvalue(), media_type="image/jpeg")
 
     @fast.post("/api/compose")
-    def compose(plate: UploadFile = File(...), params: str = Form("{}")):
+    def compose(plate: UploadFile = File(...), depth: UploadFile = File(...), params: str = Form("{}")):
         p = json.loads(params)
-        t = read_templates()
-        tpl = t[p.get("template_id") or next(iter(t))]
         seed = int(p["seed"]) if p.get("seed") is not None else random.randint(0, 2**31 - 1)
+        t0 = time.time()
         bg = Image.open(io.BytesIO(Model().gen_scene.remote(
             seed=seed, user_prompt=p.get("prompt", ""),
-            depth_png=open(tpath(tpl["depth"]), "rb").read()))).convert("RGB")
+            depth_png=depth.file.read()))).convert("RGB")
+        raw_bg = bg.copy()
         W, H = bg.size
-        ax, ay = tpl["anchor"]; ppm = tpl["px_per_m"]
         plate_img = Image.open(io.BytesIO(plate.file.read())).convert("RGBA")
-        a = np.array(plate_img)[:, :, 3]
-        ys, xs = np.where(a > 8)
-        if len(ys) == 0: raise HTTPException(400, "в плашке нет прозрачности — проверь альфа-канал")
-        x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
-        scale = (p["height_mm"] / 1000.0 * ppm) / (y1 - y0)
-        plate_r = plate_img.resize((round(plate_img.width * scale), round(plate_img.height * scale)),
-                                   Image.LANCZOS)
-        px = int(ax * W - (x0 + x1) / 2 * scale); py = int(ay * H - y1 * scale)
+        if not np.any(np.array(plate_img)[:, :, 3] > 8):
+            raise HTTPException(400, "в плашке нет прозрачности — проверь альфа-канал")
 
-        scene = bg.copy(); scene.paste(plate_r, (px, py), plate_r)
-        t0 = time.time()
-        mask = ring_mask(plate_r, px, py, W, H)
-        mb = io.BytesIO(); mask.save(mb, "PNG")
-        sb = io.BytesIO(); scene.save(sb, "PNG")
-        out = Image.open(io.BytesIO(Model().inpaint_ring.remote(
-            sb.getvalue(), mb.getvalue(), p.get("prompt", ""), seed)))
-        arr = np.array(out).astype(np.float32) + np.random.default_rng(seed).normal(0, 2.5, (H, W, 1))
-        out = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
-        m = np.array(mask).astype(np.float32)[..., None] / 255.0
-        final = np.array(out).astype(np.float32) * m + np.array(scene).astype(np.float32) * (1 - m)
-        out = Image.fromarray(np.clip(final, 0, 255).astype(np.uint8))
-        out = add_shadow(out, plate_r, px, py)
-        buf = io.BytesIO(); out.save(buf, "JPEG", quality=92)
+        sil = plate_img.split()[3].point(lambda v: 255 if v > 8 else 0)
+        ghost_mask = sil.filter(ImageFilter.GaussianBlur(40)).point(lambda v: 255 if v > 4 else 0) \
+                       .filter(ImageFilter.GaussianBlur(8))
+        mb = io.BytesIO(); ghost_mask.save(mb, "PNG")
+        bb = io.BytesIO(); bg.save(bb, "PNG")
+        bg = Image.open(io.BytesIO(Model().inpaint_floor.remote(bb.getvalue(), mb.getvalue(), seed)))
+
+        dr = io.BytesIO(); raw_bg.save(dr, "JPEG", quality=85)
+        save(f"debug/{seed}_raw.jpg", dr.getvalue())
+        dc = io.BytesIO(); bg.save(dc, "JPEG", quality=85)
+        save(f"debug/{seed}_clean.jpg", dc.getvalue())
+
+        paste_mask = (plate_img.split()[3]
+                      .filter(ImageFilter.MinFilter(3))
+                      .filter(ImageFilter.GaussianBlur(0.8)))
+        scene = bg.copy(); scene.paste(plate_img, (0, 0), paste_mask)
+        out = add_shadow(scene, plate_img, 0, 0)
+        buf = io.BytesIO(); out.save(buf, "JPEG", quality=95)
         name = f"results/{uuid.uuid4().hex[:8]}.jpg"
-        name_c = f"results/{uuid.uuid4().hex[:8]}_composite.jpg"
-        cb = io.BytesIO(); Image.fromarray(np.array(scene)).save(cb, "JPEG", quality=92)
-        save(name, buf.getvalue()); save(name_c, cb.getvalue())
+        save(name, buf.getvalue())
         b64 = base64.b64encode(buf.getvalue()).decode()
-        c64 = base64.b64encode(cb.getvalue()).decode()
         return {"url": f"data:image/jpeg;base64,{b64}",
-                "composite_url": f"data:image/jpeg;base64,{c64}",
                 "seed": seed, "seconds": round(time.time() - t0, 1)}
 
     return fast

@@ -36,13 +36,8 @@
               placeholder="Describe the surroundings — added to the base scene prompt"></textarea>
           </section>
 
-          <section class="panel__section">
-            <h2 class="panel__title">Object height</h2>
-            <div class="height-field">
-              <input class="height-input" id="object-height" type="number" min="1" step="10" value="600" />
-              <span class="height-unit">mm — real-world size, used to scale the model onto the background</span>
-            </div>
-          </section>
+          <p class="panel__hint">The camera in the viewport defines the background:
+            frame the model the way you want the final shot to look.</p>
 
           <button class="generate" id="generate" disabled>Generate background</button>
         </aside>

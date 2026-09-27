@@ -1,29 +1,14 @@
 const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
 
-export interface Candidate {
-  url: string
-  seed: number
-}
-
 export interface ComposeParams {
-  template_id: string
-  height_mm: number
   prompt: string
   seed?: number
 }
 
 export interface ComposeResult {
   url: string
-  composite_url: string
   seed: number
   seconds: number
-}
-
-export interface TemplateInfo {
-  bg: string
-  depth: string
-  anchor: number[]
-  px_per_m: number
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -51,31 +36,19 @@ function post<T>(path: string, body: FormData): Promise<T> {
 }
 
 export const api = {
+  /** Asset paths get the backend base; data: and absolute URLs pass through. */
   assetUrl(path: string): string {
     return path.startsWith('/') ? `${BASE}${path}` : path
   },
 
-  templates(): Promise<Record<string, TemplateInfo>> {
-    return request('/api/templates')
-  },
-
-  genBackgrounds(prompt: string, count = 4): Promise<Candidate[]> {
-    const body = new FormData()
-    body.set('n', String(count))
-    body.set('prompt', prompt)
-    return post('/api/gen-backgrounds', body)
-  },
-
-  makeTemplate(file: string, templateId: string): Promise<unknown> {
-    const body = new FormData()
-    body.set('file', file)
-    body.set('tid', templateId)
-    return post('/api/make-template', body)
-  },
-
-  compose(plate: Blob, params: ComposeParams): Promise<ComposeResult> {
+  /**
+   * Generates the scene: the depth pass from the app's camera drives the
+   * background perspective, the plate is pasted 1:1 with a soft shadow.
+   */
+  compose(plate: Blob, depth: Blob, params: ComposeParams): Promise<ComposeResult> {
     const body = new FormData()
     body.set('plate', plate, 'plate.png')
+    body.set('depth', depth, 'depth.png')
     body.set('params', JSON.stringify(params))
     return post('/api/compose', body)
   },

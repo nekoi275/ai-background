@@ -9,12 +9,14 @@ export interface CameraAngle {
 }
 
 const PLATE_SIZE = 1024
+const DEPTH_SHRINK = 0.96
 
 export interface ModelScene {
   loadModel(file: File): Promise<boolean>
   getCameraAngle(): CameraAngle
   captureView(): string
   capturePlate(): string
+  captureDepth(): string
 }
 
 export function createModelScene(root: HTMLElement): ModelScene {
@@ -55,6 +57,35 @@ export function createModelScene(root: HTMLElement): ModelScene {
 
   const grid = new THREE.GridHelper(10, 20, 0xcfd4dc, 0xe6e9ef)
   scene.add(grid)
+
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(40, 64),
+    new THREE.MeshBasicMaterial(),
+  )
+  ground.rotation.x = -Math.PI / 2
+  ground.visible = false
+  scene.add(ground)
+
+  const depthMaterial = new THREE.ShaderMaterial({
+    uniforms: { uNear: { value: 0.5 }, uFar: { value: 40 } },
+    vertexShader: `
+      varying float vDistance;
+      void main() {
+        vec4 viewPos = modelViewMatrix * vec4(position, 1.0);
+        vDistance = -viewPos.z;
+        gl_Position = projectionMatrix * viewPos;
+      }
+    `,
+    fragmentShader: `
+      varying float vDistance;
+      uniform float uNear;
+      uniform float uFar;
+      void main() {
+        float t = clamp((vDistance - uNear) / (uFar - uNear), 0.0, 1.0);
+        gl_FragColor = vec4(vec3(1.0 - t), 1.0);
+      }
+    `,
+  })
 
   new ResizeObserver(resize).observe(root)
 
@@ -160,23 +191,22 @@ export function createModelScene(root: HTMLElement): ModelScene {
     return canvas.toDataURL('image/png')
   }
 
-  function capturePlate(): string {
+  function withSquareRender(setup: () => void, teardown: () => void): string {
     const background = scene.background
     const pixelRatio = renderer.getPixelRatio()
     const size = renderer.getSize(new THREE.Vector2())
     const aspect = camera.aspect
 
-    scene.background = null
-    grid.visible = false
     renderer.setPixelRatio(1)
     renderer.setSize(PLATE_SIZE, PLATE_SIZE, false)
     camera.aspect = 1
     camera.updateProjectionMatrix()
+    setup()
     renderer.render(scene, camera)
     const dataUrl = canvas.toDataURL('image/png')
+    teardown()
 
     scene.background = background
-    grid.visible = true
     renderer.setPixelRatio(pixelRatio)
     renderer.setSize(size.width, size.height, false)
     camera.aspect = aspect
@@ -184,5 +214,41 @@ export function createModelScene(root: HTMLElement): ModelScene {
     return dataUrl
   }
 
-  return { loadModel, getCameraAngle, captureView, capturePlate }
+  function capturePlate(): string {
+    return withSquareRender(
+      () => {
+        scene.background = null
+        grid.visible = false
+      },
+      () => {
+        grid.visible = true
+      },
+    )
+  }
+
+  function captureDepth(): string {
+    return withSquareRender(
+      () => {
+        scene.background = new THREE.Color(0x000000)
+        grid.visible = false
+        ground.visible = true
+        if (model) {
+          model.scale.multiplyScalar(DEPTH_SHRINK)
+          model.position.multiplyScalar(DEPTH_SHRINK)
+        }
+        scene.overrideMaterial = depthMaterial
+      },
+      () => {
+        if (model) {
+          model.scale.multiplyScalar(1 / DEPTH_SHRINK)
+          model.position.multiplyScalar(1 / DEPTH_SHRINK)
+        }
+        grid.visible = true
+        ground.visible = false
+        scene.overrideMaterial = null
+      },
+    )
+  }
+
+  return { loadModel, getCameraAngle, captureView, capturePlate, captureDepth }
 }

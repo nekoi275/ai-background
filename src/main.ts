@@ -1,31 +1,22 @@
 import './style.css'
-import { api, type Candidate } from './api.ts'
+import { api } from './api.ts'
 import { setupDropzone } from './components/dropzone.ts'
 import { createModelScene } from './components/model-scene.ts'
 import { setupResultModal } from './components/result-modal.ts'
-
-const CANDIDATES_COUNT = 4
 
 const dropzone = setupDropzone(document.getElementById('dropzone')!, handleModel)
 const modelScene = createModelScene(document.getElementById('scene')!)
 const resultModal = setupResultModal(document.getElementById('modal-root')!)
 
 const promptInput = document.getElementById('prompt') as HTMLTextAreaElement
-const heightInput = document.getElementById('object-height') as HTMLInputElement
 const generateButton = document.getElementById('generate') as HTMLButtonElement
 
 let modelName: string | null = null
 
-heightInput.addEventListener('input', updateGenerateState)
 generateButton.addEventListener('click', () => void handleGenerate())
 
-function objectHeightMm(): number {
-  return Number.parseFloat(heightInput.value)
-}
-
 function updateGenerateState() {
-  generateButton.disabled =
-    modelName === null || !Number.isFinite(objectHeightMm()) || objectHeightMm() <= 0
+  generateButton.disabled = modelName === null
 }
 
 async function handleModel(file: File) {
@@ -42,43 +33,11 @@ async function handleModel(file: File) {
 
 async function handleGenerate() {
   const prompt = promptInput.value.trim()
-  try {
-    const templates = await api.templates()
-    const templateId = Object.keys(templates).pop()
-    if (templateId !== undefined) {
-      await composeScene(templateId, prompt)
-      return
-    }
-
-    resultModal.showStatus('No template yet — generating backgrounds…')
-    const candidates = await api.genBackgrounds(prompt, CANDIDATES_COUNT)
-    if (candidates.length === 0) throw new Error('The backend returned no background candidates')
-    resultModal.showCandidates(candidates, (candidate) => void makeTemplateAndCompose(candidate, prompt))
-  } catch (error) {
-    resultModal.showError(describeError(error))
-  }
-}
-
-async function makeTemplateAndCompose(candidate: Candidate, prompt: string) {
-  resultModal.showStatus('Building the template — extracting the depth map…')
-  try {
-    const templateId = crypto.randomUUID()
-    await api.makeTemplate(candidate.url.replace(/^\/asset\//, ''), templateId)
-    await composeScene(templateId, prompt)
-  } catch (error) {
-    resultModal.showError(describeError(error))
-  }
-}
-
-async function composeScene(templateId: string, prompt: string) {
-  resultModal.showStatus('Composing the scene — the first request can take a few minutes…')
+  resultModal.showStatus('Generating the scene from your camera view…')
   try {
     const plate = await (await fetch(modelScene.capturePlate())).blob()
-    const result = await api.compose(plate, {
-      template_id: templateId,
-      height_mm: objectHeightMm(),
-      prompt,
-    })
+    const depth = await (await fetch(modelScene.captureDepth())).blob()
+    const result = await api.compose(plate, depth, { prompt })
 
     resultModal.showResult({
       snapshot: modelScene.captureView(),

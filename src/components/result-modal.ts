@@ -1,4 +1,4 @@
-import { api, type Candidate, type ComposeResult } from '../api.ts'
+import { api, type ComposeResult } from '../api.ts'
 import type { CameraAngle } from './model-scene.ts'
 
 export interface ResultMeta {
@@ -15,13 +15,12 @@ export interface ResultViewData {
 
 export interface ResultModal {
   showStatus(text: string): void
-  showCandidates(candidates: Candidate[], onPick: (candidate: Candidate) => void): void
   showResult(data: ResultViewData): void
   showError(message: string): void
   close(): void
 }
 
-type Section = 'status' | 'pick' | 'result' | 'error'
+type Section = 'status' | 'result' | 'error'
 
 export function setupResultModal(root: HTMLElement): ResultModal {
   root.innerHTML = `
@@ -37,11 +36,6 @@ export function setupResultModal(root: HTMLElement): ResultModal {
           <p class="modal__status-text"></p>
         </div>
 
-        <div class="modal__pick" hidden>
-          <p class="modal__lead">Pick a background for your model</p>
-          <div class="candidates"></div>
-        </div>
-
         <div class="modal__result" hidden>
           <div class="modal__body">
             <figure class="modal__figure">
@@ -51,10 +45,6 @@ export function setupResultModal(root: HTMLElement): ResultModal {
             <figure class="modal__figure">
               <img class="modal__image" data-role="result" alt="Generated scene" />
               <figcaption>Generated scene</figcaption>
-            </figure>
-            <figure class="modal__figure">
-              <img class="modal__image" data-role="composite" alt="Composite before inpainting" />
-              <figcaption>Before inpaint — product must be intact here</figcaption>
             </figure>
           </div>
           <dl class="modal__meta">
@@ -75,15 +65,12 @@ export function setupResultModal(root: HTMLElement): ResultModal {
   const overlay = root.querySelector<HTMLElement>('.modal-overlay')!
   const closeButton = root.querySelector<HTMLElement>('.modal__close')!
   const statusText = root.querySelector<HTMLElement>('.modal__status-text')!
-  const candidatesGrid = root.querySelector<HTMLElement>('.candidates')!
   const errorText = root.querySelector<HTMLElement>('.modal__error-text')!
   const snapshotImage = root.querySelector<HTMLImageElement>('[data-role="snapshot"]')!
   const resultImage = root.querySelector<HTMLImageElement>('[data-role="result"]')!
-  const compositeImage = root.querySelector<HTMLImageElement>('[data-role="composite"]')!
 
   const sections: Record<Section, HTMLElement> = {
     status: root.querySelector<HTMLElement>('.modal__status')!,
-    pick: root.querySelector<HTMLElement>('.modal__pick')!,
     result: root.querySelector<HTMLElement>('.modal__result')!,
     error: root.querySelector<HTMLElement>('.modal__error-text')!,
   }
@@ -111,24 +98,6 @@ export function setupResultModal(root: HTMLElement): ResultModal {
       showSection('status')
     },
 
-    showCandidates(candidates, onPick) {
-      candidatesGrid.innerHTML = ''
-      for (const candidate of candidates) {
-        const button = document.createElement('button')
-        button.className = 'candidate'
-        button.type = 'button'
-
-        const image = document.createElement('img')
-        image.src = api.assetUrl(candidate.url)
-        image.alt = `Background candidate, seed ${candidate.seed}`
-        button.append(image)
-
-        button.addEventListener('click', () => onPick(candidate))
-        candidatesGrid.append(button)
-      }
-      showSection('pick')
-    },
-
     showResult(data) {
       snapshotImage.src = data.snapshot
       resultImage.src = api.assetUrl(data.result.url)
@@ -138,8 +107,6 @@ export function setupResultModal(root: HTMLElement): ResultModal {
       meta('seed').textContent = String(data.result.seed)
       meta('time').textContent = `${data.result.seconds}s`
       meta('prompt').textContent = data.meta.prompt || '— (base prompt only)'
-      compositeImage.src = data.result.composite_url ? api.assetUrl(data.result.composite_url) : ''
-      compositeImage.parentElement!.hidden = !data.result.composite_url
       showSection('result')
     },
 
@@ -152,7 +119,6 @@ export function setupResultModal(root: HTMLElement): ResultModal {
       overlay.hidden = true
       snapshotImage.src = ''
       resultImage.src = ''
-      compositeImage.src = ''
     },
   }
 

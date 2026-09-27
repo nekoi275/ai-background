@@ -38,19 +38,21 @@ cp .env.example .env.local
 
 Flow used by the frontend:
 
-1. If a calibrated template exists (`GET /api/templates`; the most recent
-   one wins), “Generate” composes straight away
-2. Otherwise: `POST /api/gen-backgrounds` → user picks one →
-   `POST /api/make-template` → compose
-3. `POST /api/compose` (model plate PNG with alpha, params JSON with
-   `template_id`, `height_mm`, `prompt`, optional `seed`) → final image.
-   The scene is regenerated from the template's depth map on every call —
-   the layout stays fixed, the look is new each time. `seed` makes it
-   reproducible.
+1. The 3D viewport camera is the source of truth: the app renders two
+   aligned 1024×1024 images from it — the model on transparency (plate)
+   and a depth pass (model + ground plane, near = bright)
+2. `POST /api/compose` (plate, depth, params JSON with `prompt` and an
+   optional `seed`) → SDXL + depth ControlNet paints the scene from that
+   depth, the plate is pasted 1:1 in the same pixels, a soft shadow is
+   added. No inpainting — product pixels stay untouched.
 
-Flow in the UI: load a model → set the camera angle in the viewport → describe
-the surroundings (optional) → “Generate background” → pick a background → get
-the composed scene.
+The camera angle and framing define the background's perspective and the
+model's placement/scale; the seed varies the look. `gen-backgrounds`,
+`make-template`, `calibrate-preview` remain as manual curl tools but are
+no longer part of the UI flow.
+
+Flow in the UI: load a model → frame it with the camera (the framing is
+the shot) → optional prompt → “Generate background”.
 
 ## Manual testing (curl)
 
@@ -60,12 +62,9 @@ API=https://<workspace>--poc-bg-api.modal.run
 curl -X POST "$API/api/gen-backgrounds" -F n=4 -F prompt=""
 # → [{"url": "/asset/candidates/…", "seed": …}, …] — open $API + url in a browser
 
-curl -X POST "$API/api/make-template" -F "file=candidates/<name>.png" -F "tid=tpl-1"
-
-curl -X POST "$API/api/compose" -F "plate=@plate.png" \
-  -F 'params={"template_id":"tpl-1","height_mm":600,"prompt":""}'
+# plate.png / depth.png can be taken from the browser devtools network tab
+# (the compose request the UI sends) or produced with three.js the same way
+curl -X POST "$API/api/compose" -F "plate=@plate.png" -F "depth=@depth.png" \
+  -F 'params={"prompt":"","seed":123}'
 ```
-
-`plate.png` is the model rendered on a transparent background — the frontend
-produces it automatically (`capturePlate()` in model-scene.ts).
 

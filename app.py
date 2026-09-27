@@ -11,12 +11,12 @@ DEPTH_FLIP = False
 
 BG_MODEL = "SG161222/RealVisXL_V4.0"
 
-BG_PROMPT = ("interior of a spacious empty industrial warehouse, large smooth polished concrete floor, "
-             "high ceiling, distant steel columns, soft diffused daylight, clean minimal space, "
-             "eye level photo, photorealistic, professional product photography")
+BG_PROMPT = ("interior of a spacious industrial warehouse, smooth polished concrete floor, high ceiling, "
+             "tall steel shelving racks with cardboard boxes and stacked pallets along the far walls, "
+             "bright soft daylight, empty clear floor in the foreground, eye level photo, photorealistic, "
+             "professional product photography")
 NEG = ("people, person, text, watermark, logo, cartoon, painting, illustration, low quality, "
-       "clutter, shelves, racks, boxes, pallets, forklift, machinery, "
-       "cluttered background, highly detailed background")
+       "clutter, debris, mess, objects on the floor in the foreground, cluttered foreground")
 
 app = modal.App("poc-bg")
 
@@ -74,13 +74,13 @@ class Model:
                                         device="cuda")
         return self.dep_pipe
 
-    def _gen(self, seed, user_prompt, depth_img=None):
+    def _gen(self, seed, prompt, neg=None, depth_img=None):
         g = self.torch.Generator("cuda").manual_seed(seed)
-        kw = dict(prompt=BG_PROMPT + (", " + user_prompt if user_prompt else ""),
-                  negative_prompt=NEG, width=1024, height=1024,
+        kw = dict(prompt=prompt or BG_PROMPT,
+                  negative_prompt=neg or NEG, width=1024, height=1024,
                   num_inference_steps=28, guidance_scale=6.5, generator=g)
         if depth_img is not None:
-            kw.update(image=depth_img, controlnet_conditioning_scale=0.65)
+            kw.update(image=depth_img, controlnet_conditioning_scale=0.85)
             return self._cn()(**kw).images[0]
         return self.bg(**kw).images[0]
 
@@ -94,11 +94,11 @@ class Model:
         return out
 
     @modal.method()
-    def gen_scene(self, seed, user_prompt, depth_png):
+    def gen_scene(self, seed, prompt, neg, depth_png):
         depth = Image.open(io.BytesIO(depth_png)).convert("RGB")
         if DEPTH_FLIP:
             depth = ImageOps.invert(depth)
-        img = self._gen(seed, user_prompt, depth_img=depth)
+        img = self._gen(seed, prompt, neg, depth_img=depth)
         buf = io.BytesIO(); img.save(buf, "PNG")
         return buf.getvalue()
 
@@ -118,7 +118,8 @@ class Model:
         img = self._inp()(
             prompt="empty open space, smooth polished concrete floor, plain clean background",
             negative_prompt=(NEG + ", objects, clutter, column, columns, pillar, "
-                             "pipe, pole, beam, structure, scaffolding"),
+                             "pipe, pole, beam, structure, scaffolding, "
+                             "shelves, rack, racks, boxes, pallets"),
             image=Image.open(io.BytesIO(bg_png)).convert("RGB"),
             mask_image=Image.open(io.BytesIO(mask_png)).convert("L"),
             width=1024, height=1024, num_inference_steps=24,
@@ -141,26 +142,23 @@ def save(name, data: bytes):
     return f"/asset/{name}"
 
 
-def add_shadow(scene, plate_r, px, py):
-    a = np.array(plate_r)[:, :, 3]
-    rows = np.where((a > 8).any(axis=1))[0]
-    h = rows.max() - rows.min() + 1
-    bottom = a[max(0, rows.max() - max(2, h // 20)) : rows.max() + 1]
-    cols = np.where((bottom > 8).any(axis=0))[0]
-    if len(cols) == 0: cols = np.where((a > 8).any(axis=0))[0]
-    cx = px + (cols.min() + cols.max()) / 2
-    base_y = py + rows.max()
-    bw = float(cols.max() - cols.min())
-    sh = Image.new("L", scene.size, 0)
-    d = ImageDraw.Draw(sh)
-    d.ellipse([cx - bw * 0.6, base_y - bw * 0.13, cx + bw * 0.6, base_y + bw * 0.13], fill=150)
-    sh = sh.filter(ImageFilter.GaussianBlur(bw * 0.05))
-    d2 = ImageDraw.Draw(sh)
-    d2.ellipse([cx - bw * 0.42, base_y - bw * 0.06, cx + bw * 0.42, base_y + bw * 0.06], fill=170)
-    sh = sh.filter(ImageFilter.GaussianBlur(bw * 0.02))
-    s = np.array(sh).astype(np.float32) / 255.0 * 0.62
-    arr = np.array(scene).astype(np.float32)
-    arr[..., :3] *= (1 - s)[..., None]
+def apply_shadow(bg, plate_img, shadow_png):
+    W, H = bg.size
+    alpha = Image.open(io.BytesIO(shadow_png)).split()[3].filter(ImageFilter.GaussianBlur(9))
+    s3d = np.array(alpha).astype(np.float32) / 255.0
+    a = np.array(plate_img.split()[3]) > 8
+    rows = np.where(a.any(axis=1))[0]
+    y1 = int(rows.max())
+    h = y1 - int(rows.min()) + 1
+    prof = np.where(a[: y1 + 1].any(axis=0), 255, 0).astype(np.uint8)
+    band_h = max(6, int(h * 0.03))
+    strip = Image.fromarray(np.tile(prof, (2 * band_h, 1)))
+    sh = Image.new("L", (W, H), 0)
+    sh.paste(strip, (0, y1 - band_h + 1))
+    contact = np.array(sh.filter(ImageFilter.GaussianBlur(band_h))).astype(np.float32) / 255.0
+    m = np.clip(0.45 * s3d + 0.12 * contact, 0, 0.5)[..., None]
+    arr = np.array(bg).astype(np.float32)
+    arr[..., :3] *= (1 - m)
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
 
@@ -236,36 +234,26 @@ def api():
         return Response(buf.getvalue(), media_type="image/jpeg")
 
     @fast.post("/api/compose")
-    def compose(plate: UploadFile = File(...), depth: UploadFile = File(...), params: str = Form("{}")):
+    def compose(plate: UploadFile = File(...), depth: UploadFile = File(...),
+                shadow: UploadFile = File(...), params: str = Form("{}")):
         p = json.loads(params)
         seed = int(p["seed"]) if p.get("seed") is not None else random.randint(0, 2**31 - 1)
         t0 = time.time()
         bg = Image.open(io.BytesIO(Model().gen_scene.remote(
-            seed=seed, user_prompt=p.get("prompt", ""),
+            seed=seed, prompt=p.get("prompt", ""), neg=p.get("negative_prompt", ""),
             depth_png=depth.file.read()))).convert("RGB")
-        raw_bg = bg.copy()
         W, H = bg.size
         plate_img = Image.open(io.BytesIO(plate.file.read())).convert("RGBA")
         if not np.any(np.array(plate_img)[:, :, 3] > 8):
-            raise HTTPException(400, "в плашке нет прозрачности — проверь альфа-канал")
-
-        sil = plate_img.split()[3].point(lambda v: 255 if v > 8 else 0)
-        ghost_mask = sil.filter(ImageFilter.GaussianBlur(40)).point(lambda v: 255 if v > 4 else 0) \
-                       .filter(ImageFilter.GaussianBlur(8))
-        mb = io.BytesIO(); ghost_mask.save(mb, "PNG")
-        bb = io.BytesIO(); bg.save(bb, "PNG")
-        bg = Image.open(io.BytesIO(Model().inpaint_floor.remote(bb.getvalue(), mb.getvalue(), seed)))
-
-        dr = io.BytesIO(); raw_bg.save(dr, "JPEG", quality=85)
-        save(f"debug/{seed}_raw.jpg", dr.getvalue())
-        dc = io.BytesIO(); bg.save(dc, "JPEG", quality=85)
-        save(f"debug/{seed}_clean.jpg", dc.getvalue())
+            raise HTTPException(400, "render doesn't have alpha-channel")
+        db = io.BytesIO(); bg.save(db, "JPEG", quality=85)
+        save(f"debug/{seed}_bg.jpg", db.getvalue())
 
         paste_mask = (plate_img.split()[3]
                       .filter(ImageFilter.MinFilter(3))
                       .filter(ImageFilter.GaussianBlur(0.8)))
         scene = bg.copy(); scene.paste(plate_img, (0, 0), paste_mask)
-        out = add_shadow(scene, plate_img, 0, 0)
+        out = apply_shadow(scene, plate_img, shadow.file.read())
         buf = io.BytesIO(); out.save(buf, "JPEG", quality=95)
         name = f"results/{uuid.uuid4().hex[:8]}.jpg"
         save(name, buf.getvalue())

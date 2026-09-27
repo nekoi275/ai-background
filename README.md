@@ -38,13 +38,19 @@ cp .env.example .env.local
 
 Flow used by the frontend:
 
-1. The 3D viewport camera is the source of truth: the app renders two
-   aligned 1024×1024 images from it — the model on transparency (plate)
-   and a depth pass (model + ground plane, near = bright)
-2. `POST /api/compose` (plate, depth, params JSON with `prompt` and an
-   optional `seed`) → SDXL + depth ControlNet paints the scene from that
-   depth, the plate is pasted 1:1 in the same pixels, a soft shadow is
-   added. No inpainting — product pixels stay untouched.
+1. The 3D viewport is the generation template: the app renders two
+   aligned 1024×1024 images from the camera — the model on transparency
+   (plate) and a depth pass (ground plane + room corner, near = bright)
+2. `POST /api/compose` (plate, depth, params JSON with `prompt`,
+   `negative_prompt` and an optional `seed`) → SDXL + depth ControlNet
+   paints the scene onto that geometry, the plate is pasted 1:1 in the
+   same pixels, a contour contact shadow is added. No inpainting —
+   product pixels stay untouched.
+
+Prompts (positive and negative) live in the panel with the previous
+defaults pre-filled; the constants in app.py are only a fallback when the
+request carries empty values. The "Scene" section controls the room
+corner: checkbox + distance — how close the product stands to the walls.
 
 The camera angle and framing define the background's perspective and the
 model's placement/scale; the seed varies the look. `gen-backgrounds`,

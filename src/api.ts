@@ -2,6 +2,7 @@ const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replac
 
 export interface ComposeParams {
   prompt: string
+  negative_prompt: string
   seed?: number
 }
 
@@ -36,19 +37,15 @@ function post<T>(path: string, body: FormData): Promise<T> {
 }
 
 export const api = {
-  /** Asset paths get the backend base; data: and absolute URLs pass through. */
   assetUrl(path: string): string {
     return path.startsWith('/') ? `${BASE}${path}` : path
   },
 
-  /**
-   * Generates the scene: the depth pass from the app's camera drives the
-   * background perspective, the plate is pasted 1:1 with a soft shadow.
-   */
-  compose(plate: Blob, depth: Blob, params: ComposeParams): Promise<ComposeResult> {
+  compose(plate: Blob, depth: Blob, shadow: Blob, params: ComposeParams): Promise<ComposeResult> {
     const body = new FormData()
     body.set('plate', plate, 'plate.png')
     body.set('depth', depth, 'depth.png')
+    body.set('shadow', shadow, 'shadow.png')
     body.set('params', JSON.stringify(params))
     return post('/api/compose', body)
   },

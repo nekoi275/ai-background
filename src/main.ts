@@ -9,11 +9,26 @@ const modelScene = createModelScene(document.getElementById('scene')!)
 const resultModal = setupResultModal(document.getElementById('modal-root')!)
 
 const promptInput = document.getElementById('prompt') as HTMLTextAreaElement
+const negativePromptInput = document.getElementById('negative-prompt') as HTMLTextAreaElement
 const generateButton = document.getElementById('generate') as HTMLButtonElement
+const wallEnabled = document.getElementById('wall-enabled') as HTMLInputElement
+const wallDistance = document.getElementById('wall-distance') as HTMLInputElement
+const wallDistanceValue = document.getElementById('wall-distance-value') as HTMLElement
 
 let modelName: string | null = null
 
 generateButton.addEventListener('click', () => void handleGenerate())
+
+function applyRoomCorner() {
+  modelScene.setRoomCorner(wallEnabled.checked ? Number.parseFloat(wallDistance.value) : null)
+}
+
+wallEnabled.addEventListener('change', applyRoomCorner)
+wallDistance.addEventListener('input', () => {
+  wallDistanceValue.textContent = wallDistance.value
+  applyRoomCorner()
+})
+applyRoomCorner()
 
 function updateGenerateState() {
   generateButton.disabled = modelName === null
@@ -32,12 +47,17 @@ async function handleModel(file: File) {
 }
 
 async function handleGenerate() {
-  const prompt = promptInput.value.trim()
+  const basePrompt = promptInput.value.trim()
+  const prompt = `${basePrompt}, soft daylight from the upper ${modelScene.getLightScreenSide()}`
   resultModal.showStatus('Generating the scene from your camera view…')
   try {
     const plate = await (await fetch(modelScene.capturePlate())).blob()
     const depth = await (await fetch(modelScene.captureDepth())).blob()
-    const result = await api.compose(plate, depth, { prompt })
+    const shadow = await (await fetch(modelScene.captureShadow())).blob()
+    const result = await api.compose(plate, depth, shadow, {
+      prompt,
+      negative_prompt: negativePromptInput.value.trim(),
+    })
 
     resultModal.showResult({
       snapshot: modelScene.captureView(),

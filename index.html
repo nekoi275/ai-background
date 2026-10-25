@@ -4,75 +4,164 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Surrounding — backgrounds for 3D models</title>
+    <title>AI Surrounding — product shots on generated backgrounds</title>
   </head>
   <body>
     <div class="app">
       <header class="app__header">
-        <h1>AI Surrounding</h1>
-        <p>AI background generation for 3D models</p>
+        <div class="app__brand">
+          <h1>AI Surrounding</h1>
+          <p>Product photos &amp; 3D models on AI-generated backgrounds</p>
+        </div>
+        <nav class="stepper" id="stepper" aria-label="Wizard steps">
+          <button class="stepper__item" type="button" data-step="1">
+            <span class="stepper__num">1</span><span class="stepper__label">Product</span>
+          </button>
+          <span class="stepper__sep"></span>
+          <button class="stepper__item" type="button" data-step="2">
+            <span class="stepper__num">2</span><span class="stepper__label">Scene</span>
+          </button>
+          <span class="stepper__sep"></span>
+          <button class="stepper__item" type="button" data-step="3">
+            <span class="stepper__num">3</span><span class="stepper__label">Prompt</span>
+          </button>
+          <span class="stepper__sep"></span>
+          <button class="stepper__item" type="button" data-step="4">
+            <span class="stepper__num">4</span><span class="stepper__label">Result</span>
+          </button>
+        </nav>
       </header>
 
       <main class="app__main">
-        <aside class="panel">
-          <section class="panel__section">
-            <h2 class="panel__title">Model</h2>
+        <!-- Step 1 — product -->
+        <section class="step" id="step-1">
+          <div class="step__body step__body--narrow">
+            <h2 class="step__title">Upload your product</h2>
+            <p class="step__lead">
+              A product photo or a 3D model. Photos without transparency are cut
+              out automatically; 3D models keep their original size.
+            </p>
+
             <div class="dropzone" id="dropzone">
-              <input type="file" accept=".glb,.gltf" hidden />
+              <input type="file" accept="image/*,.glb,.gltf,.obj,.fbx" hidden />
+              <img class="dropzone__preview" alt="" hidden />
               <svg class="dropzone__icon" width="24" height="24" viewBox="0 0 24 24" fill="none"
                    stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 15V4m0 0 4 4m-4-4L8 8" />
                 <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
               </svg>
-              <p class="dropzone__text">Drag &amp; drop a model here<br />or click to browse</p>
-              <p class="dropzone__hint">GLB / GLTF</p>
+              <p class="dropzone__text">Drag &amp; drop a product photo or a 3D model<br />or click to browse</p>
+              <p class="dropzone__hint">JPG · PNG · WebP &nbsp;/&nbsp; GLB · GLTF · OBJ · FBX</p>
               <p class="dropzone__error" hidden></p>
             </div>
-          </section>
 
-          <section class="panel__section">
-            <h2 class="panel__title">Prompt</h2>
-            <textarea class="prompt" id="prompt" rows="5">interior of a spacious industrial warehouse, smooth polished concrete floor, high ceiling, cardboard boxes and stacked pallets along the far walls, bright soft daylight, empty clear floor in the foreground, eye level photo, blurred background</textarea>
-          </section>
-
-          <section class="panel__section">
-            <h2 class="panel__title">Negative prompt</h2>
-            <textarea class="prompt" id="negative-prompt" rows="3">people, person, text, watermark, logo, cartoon, painting, illustration, low quality, clutter, debris, mess, objects on the floor in the foreground, cluttered foreground</textarea>
-          </section>
-
-          <section class="panel__section">
-            <h2 class="panel__title">Scene</h2>
-            <label class="wall-toggle">
-              <input type="checkbox" id="wall-enabled" checked />
-              Corner walls behind the model
-            </label>
-            <label class="wall-distance">
-              Distance
-              <input type="range" id="wall-distance" min="0.5" max="8" step="0.1" value="1.5" />
-              <b id="wall-distance-value">1.5</b>
-            </label>
-          </section>
-
-          <p class="panel__hint">The camera in the viewport defines the background:
-            frame the model the way you want the final shot to look.</p>
-
-          <button class="generate" id="generate" disabled>Generate background</button>
-        </aside>
-
-        <section class="scene" id="scene">
-          <div class="scene__hint">
-            <p class="scene__hint-title">No model loaded</p>
-            <p class="scene__hint-text">Load a GLB file to see it here.<br />Drag with the mouse to set the camera angle.</p>
-          </div>
-          <div class="scene__hud" hidden>
-            <span>Azimuth <b class="hud__azimuth">0°</b></span>
-            <span>Elevation <b class="hud__elevation">0°</b></span>
+            <div class="product-card" id="product-card" hidden>
+              <span class="product-card__badge" id="product-badge"></span>
+              <div class="product-card__info">
+                <b id="product-name"></b>
+                <span id="product-details"></span>
+              </div>
+              <button class="product-card__replace" type="button" id="product-replace">Replace</button>
+            </div>
           </div>
         </section>
+
+        <section class="step" id="step-2" hidden>
+          <div class="studio">
+            <div class="studio__viewport">
+              <div class="scene" id="scene">
+                <div class="scene__help">Drag — orbit · Scroll — zoom · Right-drag — pan</div>
+              </div>
+            </div>
+
+            <aside class="controls">
+              <h3 class="controls__title">Room</h3>
+              <label class="control">
+                <span class="control__head"><span>Width</span><b data-out="room-width">5.0 m</b></span>
+                <input type="range" id="room-width" min="0.5" max="40" step="0.1" value="5" />
+              </label>
+              <label class="control">
+                <span class="control__head"><span>Height</span><b data-out="room-height">3.0 m</b></span>
+                <input type="range" id="room-height" min="0.5" max="20" step="0.1" value="3" />
+              </label>
+              <label class="control">
+                <span class="control__head"><span>Depth</span><b data-out="room-depth">5.0 m</b></span>
+                <input type="range" id="room-depth" min="0.5" max="40" step="0.1" value="5" />
+              </label>
+
+              <h3 class="controls__title">Table</h3>
+              <label class="control control--toggle">
+                <span>Show table</span>
+                <input type="checkbox" id="table-visible" />
+              </label>
+              <div class="controls__group" id="table-controls">
+                <label class="control">
+                  <span class="control__head"><span>Size</span><b data-out="table-size">0.60 m</b></span>
+                  <input type="range" id="table-size" min="0.05" max="6" step="0.05" value="0.6" />
+                </label>
+                <label class="control">
+                  <span class="control__head"><span>Position X</span><b data-out="table-x">0.00 m</b></span>
+                  <input type="range" id="table-x" min="-10" max="10" step="0.05" value="0" />
+                </label>
+                <label class="control">
+                  <span class="control__head"><span>Position Z</span><b data-out="table-z">0.00 m</b></span>
+                  <input type="range" id="table-z" min="-10" max="10" step="0.05" value="0" />
+                </label>
+              </div>
+
+              <h3 class="controls__title">Object</h3>
+              <div id="photo-controls" hidden>
+                <label class="control">
+                  <span class="control__head"><span>Height</span><b data-out="photo-height">45%</b></span>
+                  <input type="range" id="photo-height" min="5" max="95" step="1" value="45" />
+                </label>
+                <p class="controls__hint">Relative to room height</p>
+              </div>
+              <p class="controls__hint" id="model-info" hidden></p>
+
+              <button class="btn-ghost" id="frame" type="button">Frame product</button>
+            </aside>
+          </div>
+        </section>
+
+        <section class="step" id="step-3" hidden>
+          <div class="step__body step__body--narrow">
+            <h2 class="step__title">Describe the background</h2>
+            <p class="step__lead">
+              The scene follows your camera exactly; the prompt decides what the
+              space around the product is.
+            </p>
+
+            <label class="field">
+              <span class="field__label">Prompt</span>
+              <textarea class="prompt" id="prompt" rows="4"
+                placeholder="e.g. bright minimal showroom, warm wooden floor, soft daylight from large windows on the left…"></textarea>
+            </label>
+
+            <label class="field">
+              <span class="field__label">Negative prompt</span>
+              <textarea class="prompt" id="negative-prompt" rows="3">people, person, text, watermark, logo, cartoon, painting, illustration, low quality, clutter, debris, mess, objects on the floor in the foreground, cluttered foreground</textarea>
+            </label>
+
+            <figure class="shot">
+              <img id="shot-preview" alt="Current camera view" />
+              <figcaption>Current shot</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <!-- Step 4 — result -->
+        <section class="step" id="step-4" hidden>
+          <div class="step__body" id="result-root"></div>
+        </section>
       </main>
+
+      <footer class="app__footer">
+        <button class="btn-ghost" id="back" type="button">Back</button>
+        <button class="btn-primary" id="next" type="button">Next</button>
+      </footer>
     </div>
 
-    <div id="modal-root"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

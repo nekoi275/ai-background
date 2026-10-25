@@ -1,24 +1,28 @@
-const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/+$/, '')
-
-export interface ComposeParams {
+export interface SceneParams {
+  seed: number
+  width: number
+  height: number
   prompt: string
   negative_prompt: string
-  seed?: number
+}
+
+export interface SceneResult {
+  scene_b64: string
+  depth_b64: string
+  seed: number
+  width: number
+  height: number
+  seconds: number
 }
 
 export interface ComposeResult {
-  url: string
+  image_b64: string
   seed: number
   seconds: number
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!BASE) {
-    throw new Error(
-      'VITE_API_URL is not set: copy .env.example to .env.local, put the Modal app URL there and restart the dev server.',
-    )
-  }
-  const response = await fetch(`${BASE}${path}`, init)
+  const response = await fetch(path, init)
   if (!response.ok) {
     const details = await response.text().catch(() => '')
     throw new Error(`Backend responded with ${response.status}: ${details.slice(0, 200)}`)
@@ -26,27 +30,77 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const contentType = response.headers.get('content-type') ?? ''
   if (!contentType.includes('application/json')) {
     throw new Error(
-      `Expected JSON from the backend but received ${contentType || 'no content type'} — check that VITE_API_URL points at the Modal app URL.`,
+      `Expected JSON from the backend but received ${contentType || 'no content type'} — the API proxy may be missing.`,
     )
   }
   return (await response.json()) as T
 }
 
-function post<T>(path: string, body: FormData): Promise<T> {
-  return request(path, { method: 'POST', body })
+const PROXY_LIMIT_MS = 140_000
+const POLL_INTERVAL_MS = 4_000
+const POLL_ATTEMPTS = 90
+
+async function withRecovery<T>(path: string, body: FormData, recoveryPath: string): Promise<T> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), PROXY_LIMIT_MS)
+  try {
+    return await request<T>(path, { method: 'POST', body, signal: controller.signal })
+  } catch (error) {
+    if (!wasSevered(error)) throw error
+    return pollRecovery<T>(recoveryPath)
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function wasSevered(error: unknown): boolean {
+  if (error instanceof TypeError) return true
+  if (error instanceof DOMException && error.name === 'AbortError') return true
+  return error instanceof Error && error.message.startsWith('Expected JSON')
+}
+
+async function pollRecovery<T>(path: string): Promise<T> {
+  for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+    try {
+      return await request<T>(path)
+    } catch (error) {
+      const missing = error instanceof Error && error.message.includes('responded with 404')
+      if (!missing) throw error
+    }
+  }
+  throw new Error('The backend never finished the generation — check the backend logs.')
 }
 
 export const api = {
-  assetUrl(path: string): string {
-    return path.startsWith('/') ? `${BASE}${path}` : path
+  async cutout(png: Blob): Promise<Blob> {
+    const body = new FormData()
+    body.set('image', png, 'product.png')
+    const response = await fetch('/api/cutout', { method: 'POST', body })
+    if (!response.ok) {
+      const details = await response.text().catch(() => '')
+      throw new Error(`Cutout failed (${response.status}): ${details.slice(0, 200)}`)
+    }
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.includes('image/png')) {
+      throw new Error(`Expected a PNG from /api/cutout but received ${contentType || 'no content type'}.`)
+    }
+    return response.blob()
   },
 
-  compose(plate: Blob, depth: Blob, shadow: Blob, params: ComposeParams): Promise<ComposeResult> {
+  scene(params: SceneParams, depth: Blob): Promise<SceneResult> {
+    const body = new FormData()
+    body.set('params', JSON.stringify(params))
+    body.set('depth', depth, 'depth.png')
+    return withRecovery('/api/scene', body, `/api/scene-result/${params.seed}`)
+  },
+
+  compose(plate: Blob, scene: Blob, depth: Blob, params: { seed: number }): Promise<ComposeResult> {
     const body = new FormData()
     body.set('plate', plate, 'plate.png')
+    body.set('scene', scene, 'scene.jpg')
     body.set('depth', depth, 'depth.png')
-    body.set('shadow', shadow, 'shadow.png')
     body.set('params', JSON.stringify(params))
-    return post('/api/compose', body)
+    return request('/api/compose', { method: 'POST', body })
   },
 }

@@ -1,23 +1,26 @@
-const MODEL_EXTENSIONS = /\.(glb|gltf)$/i
-
-export interface Dropzone {
-  setFile(name: string): void
+export interface DropzoneView {
+  showStatus(text: string): void
+  setFilled(name: string, previewUrl: string | null): void
   showError(message: string): void
 }
 
-
-export function setupDropzone(root: HTMLElement, onModel: (file: File) => void): Dropzone {
+export function setupDropzone(root: HTMLElement, onFile: (file: File) => void): DropzoneView {
   const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
+  const icon = root.querySelector<HTMLElement>('.dropzone__icon')!
   const text = root.querySelector<HTMLElement>('.dropzone__text')!
   const hint = root.querySelector<HTMLElement>('.dropzone__hint')!
   const error = root.querySelector<HTMLElement>('.dropzone__error')!
+  const preview = root.querySelector<HTMLImageElement>('.dropzone__preview')!
+
+  const initialText = text.innerHTML
+  const initialHint = hint.innerHTML
 
   root.addEventListener('click', () => input.click())
 
   input.addEventListener('change', () => {
     const file = input.files?.[0]
     input.value = ''
-    if (file) handleFile(file)
+    if (file) onFile(file)
   })
 
   root.addEventListener('dragover', (event) => {
@@ -32,28 +35,44 @@ export function setupDropzone(root: HTMLElement, onModel: (file: File) => void):
     event.preventDefault()
     root.classList.remove('dropzone--over')
     const file = event.dataTransfer?.files?.[0]
-    if (file) handleFile(file)
+    if (file) onFile(file)
   })
 
-  function handleFile(file: File) {
-    if (!MODEL_EXTENSIONS.test(file.name)) {
-      showError('Only .glb and .gltf files are supported')
-      return
-    }
-    onModel(file)
-  }
-
-  function showError(message: string) {
-    error.textContent = message
-    error.hidden = false
+  function reset() {
+    preview.hidden = true
+    preview.src = ''
+    icon.hidden = false
+    root.classList.remove('dropzone--filled')
+    text.innerHTML = initialText
+    hint.innerHTML = initialHint
+    error.hidden = true
   }
 
   return {
-    setFile(name) {
+    showStatus(message) {
+      reset()
+      text.textContent = message
+      root.classList.add('dropzone--busy')
+    },
+
+    setFilled(name, previewUrl) {
+      reset()
+      root.classList.remove('dropzone--busy')
+      root.classList.add('dropzone--filled')
       text.textContent = name
       hint.textContent = 'Click to replace'
-      error.hidden = true
+      if (previewUrl) {
+        preview.src = previewUrl
+        preview.hidden = false
+        icon.hidden = true
+      }
     },
-    showError,
+
+    showError(message) {
+      reset()
+      root.classList.remove('dropzone--busy')
+      error.textContent = message
+      error.hidden = false
+    },
   }
 }

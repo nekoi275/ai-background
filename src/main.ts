@@ -9,8 +9,6 @@ import { createStudioScene } from './components/studio-scene.ts'
 import type { ProductData, RoomConfig, TableConfig } from './components/studio-scene.ts'
 import { setupResultView } from './components/result-view.ts'
 
-const FRAME_SIDE = 1024
-
 type StepId = 1 | 2 | 3 | 4
 const LAST_STEP: StepId = 4
 
@@ -269,15 +267,18 @@ async function generate(): Promise<void> {
   const seed = randomSeed()
   try {
     resultView.showStatus('Rendering the shot from your camera…')
+    const frame = scene.captureSize()
     const depth = dataUrlToBlob(scene.captureDepth())
     const plate = dataUrlToBlob(scene.capturePlate())
+    const reflection = scene.captureReflection()
+    const shadow = scene.captureShadow()
 
     resultView.showStatus('Painting the background…')
     const sceneRes = await api.scene(
       {
         seed,
-        width: FRAME_SIDE,
-        height: FRAME_SIDE,
+        width: frame.width,
+        height: frame.height,
         prompt: promptInput.value.trim(),
         negative_prompt: negativePromptInput.value.trim(),
       },
@@ -290,6 +291,8 @@ async function generate(): Promise<void> {
       base64ToBlob(sceneRes.scene_b64, 'image/jpeg'),
       base64ToBlob(sceneRes.depth_b64, 'image/png'),
       { seed },
+      reflection ? dataUrlToBlob(reflection) : null,
+      shadow ? dataUrlToBlob(shadow) : null,
     )
 
     resultReached = true

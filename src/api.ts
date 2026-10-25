@@ -95,11 +95,20 @@ export const api = {
     return withRecovery('/api/scene', body, `/api/scene-result/${params.seed}`)
   },
 
-  compose(plate: Blob, scene: Blob, depth: Blob, params: { seed: number }): Promise<ComposeResult> {
+  compose(
+    plate: Blob,
+    scene: Blob,
+    depth: Blob,
+    params: { seed: number },
+    reflection: Blob | null = null,
+    shadow: Blob | null = null,
+  ): Promise<ComposeResult> {
     const body = new FormData()
     body.set('plate', plate, 'plate.png')
     body.set('scene', scene, 'scene.jpg')
     body.set('depth', depth, 'depth.png')
+    if (reflection) body.set('reflection', reflection, 'reflection.png')
+    if (shadow) body.set('shadow', shadow, 'shadow.png')
     body.set('params', JSON.stringify(params))
     return request('/api/compose', { method: 'POST', body })
   },

@@ -1,18 +1,3 @@
-"""
-  /api/cutout  — product photo → trimmed RGBA cutout. A PNG with real
-                 transparency is trimmed as-is; anything else goes through
-                 rembg. The frontend maps the cutout onto a billboard inside
-                 the 3D room.
-  /api/scene   — paint an interior onto the client-rendered depth pass of
-                 the configurable 3D room + product (SDXL + ControlNet-Depth).
-                 What the room IS comes from the user prompt; only a
-                 geometry-anchoring base is appended here.
-  /api/compose — composite the client-rendered full-frame RGBA product
-                 plate (transparent-background render at native proportions,
-                 already framed by the user's camera) onto the generated
-                 scene: contact shadow, depth-of-field, unified grain.
-"""
-
 import base64
 import io
 import json
@@ -51,7 +36,11 @@ GEN_CN_SCALE = _env_float("GEN_CN_SCALE", 0.65)
 GEN_CN_END = _env_float("GEN_CN_END", 0.75)
 GEN_DOF_SPREAD = _env_float("GEN_DOF_SPREAD", 0.55)
 FOCUS_BLUR_MAX = _env_float("GEN_FOCUS_BLUR_MAX", 2.5)
+REFLECT_STRENGTH = _env_float("GEN_REFLECT_STRENGTH", 0.45)
+REFLECT_FADE_FRAC = _env_float("GEN_REFLECT_FADE_FRAC", 0.3)
+REFLECT_BLUR = _env_float("GEN_REFLECT_BLUR", 2.5)
 SHADOW_STRENGTH = _env_float("GEN_SHADOW_STRENGTH", 0.5)
+SHADOW_BLUR = _env_float("GEN_SHADOW_BLUR", 6.0)
 BG_DEFOCUS = _env_float("GEN_BG_DEFOCUS", 1.2)
 PRODUCT_SHARPEN = _env_float("GEN_PRODUCT_SHARPEN", 0.35)
 GEN_GRAIN = _env_float("GEN_GRAIN", 1.3)
@@ -60,7 +49,8 @@ API_TOKEN = os.environ.get("API_TOKEN", "").strip()
 GEOMETRY_BASE = (
     "eye-level wide-angle photograph of the interior shown in the depth image, "
     "the room layout, walls and floor follow the depth map exactly, "
-    "smooth clean empty floor in the foreground, photorealistic"
+    "smooth clean empty floor in the foreground with subtle glossy reflections, "
+    "photorealistic"
 )
 SCENE_NEG = (
     "people, person, text, watermark, logo, cartoon, painting, illustration, "
@@ -84,7 +74,11 @@ _IMAGE_ENV = {"HF_HOME": "/cache",
               "GEN_CN_END": str(GEN_CN_END),
               "GEN_DOF_SPREAD": str(GEN_DOF_SPREAD),
               "GEN_FOCUS_BLUR_MAX": str(FOCUS_BLUR_MAX),
+              "GEN_REFLECT_STRENGTH": str(REFLECT_STRENGTH),
+              "GEN_REFLECT_FADE_FRAC": str(REFLECT_FADE_FRAC),
+              "GEN_REFLECT_BLUR": str(REFLECT_BLUR),
               "GEN_SHADOW_STRENGTH": str(SHADOW_STRENGTH),
+              "GEN_SHADOW_BLUR": str(SHADOW_BLUR),
               "GEN_BG_DEFOCUS": str(BG_DEFOCUS),
               "GEN_PRODUCT_SHARPEN": str(PRODUCT_SHARPEN),
               "GEN_GRAIN": str(GEN_GRAIN),
@@ -380,6 +374,49 @@ def _contact_shadow(out: Image.Image, plate_img: Image.Image) -> Image.Image:
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
 
+def _blend_reflection(out: Image.Image, reflection_img: Image.Image,
+                      width: int, height: int) -> Image.Image:
+    """Floor reflection from the 3D pass: the mirrored product rendered
+    with the same camera/env. Blurred slightly, faded to nothing over the
+    fade band below the contact line, composited onto the frame. Ported
+    from the begra gpu-service."""
+    if REFLECT_STRENGTH <= 0 or reflection_img is None:
+        return out
+    refl = reflection_img.resize((width, height), Image.Resampling.LANCZOS)
+    ralpha = refl.split()[3]
+    bbox = ralpha.getbbox()
+    if bbox is None:
+        return out
+    fade_h = max(1, int(bbox[3] - bbox[1]))
+    grad = np.ones((height, width), np.float32)
+    ramp = np.linspace(1.0, 0.0, fade_h) ** max(1.0, 1.0 / REFLECT_FADE_FRAC)
+    grad[bbox[1]:bbox[3], bbox[0]:bbox[2]] *= ramp[:, None]
+    a = np.asarray(ralpha, np.float32) * grad * REFLECT_STRENGTH
+    faded = refl.copy()
+    faded.putalpha(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)))
+    if REFLECT_BLUR > 0:
+        faded = faded.filter(ImageFilter.GaussianBlur(REFLECT_BLUR))
+    out = out.convert("RGBA")
+    out.alpha_composite(faded)
+    return out.convert("RGB")
+
+
+def _blend_shadow_pass(out: Image.Image, shadow_img: Image.Image,
+                       relit_plate: Image.Image) -> Image.Image:
+    """Real 3D shadow pass (ShadowMaterial floor render): blurred, strength-
+    scaled and multiplied onto the floor, with the product itself protected.
+    Ported from the begra gpu-service."""
+    shadow = shadow_img.resize(out.size, Image.Resampling.LANCZOS)
+    m = np.asarray(shadow.split()[3].filter(
+        ImageFilter.GaussianBlur(SHADOW_BLUR)), np.float32) / 255.0 * SHADOW_STRENGTH
+    alpha = np.asarray(relit_plate.split()[3].filter(
+        ImageFilter.MaxFilter(5)), np.float32) / 255.0
+    m *= (1.0 - alpha)
+    arr = np.asarray(out, np.float32)
+    arr[..., :3] *= (1.0 - m[..., None])
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+
+
 def _compose_generative(
     plate_img: Image.Image,
     seed: int,
@@ -387,6 +424,8 @@ def _compose_generative(
     height: int,
     scene_img: Image.Image,
     dhat: np.ndarray,
+    reflection_img: Image.Image | None = None,
+    shadow_img: Image.Image | None = None,
 ) -> Image.Image:
 
     if BG_DEFOCUS > 0:
@@ -417,7 +456,11 @@ def _compose_generative(
             out = Image.fromarray(np.clip(
                 arr * (1 - t)[..., None] + blr * t[..., None],
                 0, 255).astype(np.uint8))
-    out = _contact_shadow(out, relit_plate)
+    out = _blend_reflection(out, reflection_img, width, height)
+    if shadow_img is not None:
+        out = _blend_shadow_pass(out, shadow_img, relit_plate)
+    else:
+        out = _contact_shadow(out, relit_plate)
     if GEN_GRAIN > 0:
         noise = np.random.default_rng(seed).normal(
             0.0, GEN_GRAIN, (out.height, out.width, 1)).astype(np.float32)
@@ -576,6 +619,8 @@ def api():
         plate: UploadFile = File(...),
         scene: UploadFile = File(...),
         depth: UploadFile = File(...),
+        reflection: UploadFile | None = File(None),
+        shadow: UploadFile | None = File(None),
         params: str = Form("{}"),
         authorization: str | None = Header(None),
     ):
@@ -610,9 +655,27 @@ def api():
             if plate_img.size != (width, height):
                 plate_img = plate_img.resize((width, height),
                                              Image.Resampling.LANCZOS)
+            reflection_img = None
+            if reflection is not None:
+                raw_refl = reflection.file.read()
+                if raw_refl:
+                    reflection_img = _load_image(raw_refl, "RGBA")
+                    if reflection_img.size != (width, height):
+                        reflection_img = reflection_img.resize(
+                            (width, height), Image.Resampling.LANCZOS)
+            shadow_img = None
+            if shadow is not None:
+                raw_shadow = shadow.file.read()
+                if raw_shadow:
+                    shadow_img = _load_image(raw_shadow, "RGBA")
+                    if shadow_img.size != (width, height):
+                        shadow_img = shadow_img.resize(
+                            (width, height), Image.Resampling.LANCZOS)
             out = _compose_generative(plate_img, seed, width, height,
                                       scene_img=scene_img,
-                                      dhat=dhat)
+                                      dhat=dhat,
+                                      reflection_img=reflection_img,
+                                      shadow_img=shadow_img)
             print(f"generative pipeline ok seed={seed} "
                   f"seconds={time.time() - t0g:.1f}", flush=True)
             jpeg = _jpeg_bytes(out)

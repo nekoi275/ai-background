@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 
 export interface RoomConfig {
   width: number
@@ -24,12 +25,16 @@ export interface StudioScene {
   setProduct(product: ProductData | null): void
   setPhotoHeight(fraction: number): void
   frameProduct(): void
+  captureSize(): { width: number; height: number }
   captureView(): string
   captureDepth(): string
   capturePlate(): string
+  captureReflection(): string | null
+  captureShadow(): string | null
 }
 
 const CAPTURE_SIZE = 1024
+const CAPTURE_MIN_SIDE = 512
 const FOV = 50
 const WALL_COLOR = 0xede9e1
 const CEILING_COLOR = 0xf4f1eb
@@ -81,6 +86,7 @@ export function createStudioScene(root: HTMLElement): StudioScene {
 
   let billboard: THREE.Mesh | null = null
   let photoAspect = 1
+  let hasModelProduct = false
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc8bd, 1.1))
   const key = new THREE.DirectionalLight(0xffffff, 2.0)
@@ -101,6 +107,8 @@ export function createStudioScene(root: HTMLElement): StudioScene {
       gl_Position = projectionMatrix * viewPosition;
     }`
   const depthMaterial = new THREE.ShaderMaterial({
+    uniforms: depthUniforms,
+    side: THREE.DoubleSide,
     vertexShader: depthVertex,
     fragmentShader: `
       uniform float uNear;
@@ -111,29 +119,13 @@ export function createStudioScene(root: HTMLElement): StudioScene {
         gl_FragColor = vec4(vec3(closeness), 1.0);
       }`,
   })
-  const billboardDepthMaterial = new THREE.ShaderMaterial({
-    uniforms: { uNear: depthUniforms.uNear, uFar: depthUniforms.uFar, map: { value: null } },
-    vertexShader: `
-      varying float vDistance;
-      varying vec2 vUv;
-      void main() {
-        vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
-        vDistance = length(viewPosition.xyz);
-        vUv = uv;
-        gl_Position = projectionMatrix * viewPosition;
-      }`,
-    fragmentShader: `
-      uniform sampler2D map;
-      uniform float uNear;
-      uniform float uFar;
-      varying float vDistance;
-      varying vec2 vUv;
-      void main() {
-        if (texture2D(map, vUv).a < 0.5) discard;
-        float closeness = clamp((uFar - vDistance) / (uFar - uNear), 0.0, 1.0);
-        gl_FragColor = vec4(vec3(closeness), 1.0);
-      }`,
-  })
+
+  renderer.shadowMap.enabled = true
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap
+
+  const pmrem = new THREE.PMREMGenerator(renderer)
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+  pmrem.dispose()
 
   const room: RoomConfig = { width: 5, height: 3, depth: 5 }
   const table: TableConfig = { visible: false, size: 0.6, x: 0, z: 0 }
@@ -192,6 +184,7 @@ export function createStudioScene(root: HTMLElement): StudioScene {
   }
 
   function disposeProduct(): void {
+    hasModelProduct = false
     for (const child of [...productRoot.children]) {
       child.traverse((node) => {
         const mesh = node as THREE.Mesh
@@ -220,15 +213,25 @@ export function createStudioScene(root: HTMLElement): StudioScene {
     return far
   }
 
-  function renderSquare(setup: () => void, teardown: () => void): string {
+  function captureDims(): { width: number; height: number } {
+    const aspect = Math.min(Math.max(camera.aspect, 0.5), 2)
+    if (aspect >= 1) {
+      return { width: CAPTURE_SIZE, height: Math.max(CAPTURE_MIN_SIDE, Math.round(CAPTURE_SIZE / aspect)) }
+    }
+    return { width: Math.max(CAPTURE_MIN_SIDE, Math.round(CAPTURE_SIZE * aspect)), height: CAPTURE_SIZE }
+  }
+
+  function renderCapture(width: number, height: number, setup: () => void, teardown: () => void): string {
     const pixelRatio = renderer.getPixelRatio()
     const size = renderer.getSize(new THREE.Vector2())
     const aspect = camera.aspect
     const background = scene.background
+    const clearColor = renderer.getClearColor(new THREE.Color())
+    const clearAlpha = renderer.getClearAlpha()
 
     renderer.setPixelRatio(1)
-    renderer.setSize(CAPTURE_SIZE, CAPTURE_SIZE, false)
-    camera.aspect = 1
+    renderer.setSize(width, height, false)
+    camera.aspect = width / height
     camera.updateProjectionMatrix()
     setup()
     renderer.render(scene, camera)
@@ -236,11 +239,28 @@ export function createStudioScene(root: HTMLElement): StudioScene {
     teardown()
 
     scene.background = background
+    renderer.setClearColor(clearColor, clearAlpha)
     renderer.setPixelRatio(pixelRatio)
     renderer.setSize(size.width, size.height, false)
     camera.aspect = aspect
     camera.updateProjectionMatrix()
     return dataUrl
+  }
+
+  function productOnlyPass(): { setup: () => void; teardown: () => void } {
+    return {
+      setup: () => {
+        roomMesh.visible = false
+        tableMesh.visible = false
+        scene.background = null
+        renderer.setClearColor(0x000000, 0)
+      },
+      teardown: () => {
+        roomMesh.visible = true
+        tableMesh.visible = table.visible
+        renderer.setClearColor(0x000000, 1)
+      },
+    }
   }
 
   const view: StudioScene = {
@@ -271,11 +291,23 @@ export function createStudioScene(root: HTMLElement): StudioScene {
         new THREE.TextureLoader().load(product.url, (texture) => {
           texture.colorSpace = THREE.SRGBColorSpace
           material.map = texture
-          billboardDepthMaterial.uniforms.map.value = texture
           material.needsUpdate = true
         })
       } else {
+        hasModelProduct = true
         productRoot.add(product.object)
+        product.object.traverse((node) => {
+          const mesh = node as THREE.Mesh
+          if (!mesh.isMesh) return
+          mesh.castShadow = true
+          mesh.receiveShadow = true
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+          for (const material of materials) {
+            if ('envMapIntensity' in material) {
+              ;(material as THREE.MeshStandardMaterial).envMapIntensity = 1.15
+            }
+          }
+        })
       }
       placeProduct()
     },
@@ -301,43 +333,151 @@ export function createStudioScene(root: HTMLElement): StudioScene {
       controls.update()
     },
 
+    captureSize() {
+      return captureDims()
+    },
+
     captureView() {
-      return renderSquare(() => {}, () => {})
+      const dims = captureDims()
+      return renderCapture(dims.width, dims.height, () => {}, () => {})
     },
 
     captureDepth() {
       const swaps = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>()
       depthUniforms.uFar.value = farthestCornerDistance(camera.position) * 1.05
-      return renderSquare(
-        () => {
+      const dims = captureDims()
+      productRoot.visible = false
+      try {
+        return renderCapture(dims.width, dims.height, () => {
           scene.traverse((node) => {
             const mesh = node as THREE.Mesh
             if (!mesh.isMesh) return
             swaps.set(mesh, mesh.material)
-            mesh.material = mesh === billboard ? billboardDepthMaterial : depthMaterial
+            mesh.material = depthMaterial
           })
           scene.background = null
-        },
-        () => {
+        }, () => {
           for (const [mesh, material] of swaps) mesh.material = material
-        },
-      )
+        })
+      } finally {
+        productRoot.visible = true
+      }
     },
 
     capturePlate() {
-      return renderSquare(
-        () => {
-          roomMesh.visible = false
-          tableMesh.visible = false
-          scene.background = null
-          renderer.setClearColor(0x000000, 0)
-        },
-        () => {
-          roomMesh.visible = true
-          tableMesh.visible = table.visible
-          renderer.setClearColor(0x000000, 1)
-        },
-      )
+      const dims = captureDims()
+      const pass = productOnlyPass()
+      return renderCapture(dims.width, dims.height, pass.setup, pass.teardown)
+    },
+
+    captureReflection() {
+      try {
+        const dims = captureDims()
+        const sideSaves: { material: THREE.Material; side: THREE.Side }[] = []
+        const cullSaves: [THREE.Object3D, boolean][] = []
+        productRoot.traverse((node) => {
+          cullSaves.push([node, node.frustumCulled])
+          node.frustumCulled = false
+          const mesh = node as THREE.Mesh
+          if (!mesh.isMesh) return
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+          for (const material of materials) {
+            sideSaves.push({ material, side: material.side })
+            material.side = THREE.DoubleSide
+          }
+        })
+        productRoot.scale.y = -1
+        productRoot.updateMatrixWorld()
+        const pass = productOnlyPass()
+        try {
+          return renderCapture(dims.width, dims.height, pass.setup, pass.teardown)
+        } finally {
+          productRoot.scale.y = 1
+          productRoot.updateMatrixWorld()
+          for (const [node, culled] of cullSaves) node.frustumCulled = culled
+          for (const { material, side } of sideSaves) material.side = side
+        }
+      } catch {
+        return null
+      }
+    },
+
+    captureShadow() {
+      if (!hasModelProduct) return null
+      try {
+        const bbox = new THREE.Box3().setFromObject(productRoot)
+        const size = bbox.getSize(new THREE.Vector3())
+        const half = Math.max(size.x, size.z) * 0.8 + 1
+        const dims = captureDims()
+
+        const shadowPlane = new THREE.Mesh(
+          new THREE.PlaneGeometry(40, 40),
+          new THREE.ShadowMaterial({ opacity: 1 }),
+        )
+        shadowPlane.rotation.x = -Math.PI / 2
+        shadowPlane.receiveShadow = true
+        shadowPlane.frustumCulled = false
+        productRoot.add(shadowPlane)
+
+        const ghost = new THREE.MeshBasicMaterial({ colorWrite: false })
+        const matSaves: { mesh: THREE.Mesh; material: THREE.Material | THREE.Material[] }[] = []
+        const cullSaves: [THREE.Object3D, boolean][] = []
+        productRoot.traverse((node) => {
+          cullSaves.push([node, node.frustumCulled])
+          node.frustumCulled = false
+          const mesh = node as THREE.Mesh
+          if (mesh.isMesh && mesh !== shadowPlane) {
+            matSaves.push({ mesh, material: mesh.material })
+            mesh.material = ghost
+          }
+        })
+
+        const savedLightVis: [THREE.Object3D, boolean][] = []
+        scene.traverse((node) => {
+          if ((node as THREE.Light).isLight) {
+            savedLightVis.push([node, node.visible])
+            node.visible = false
+          }
+        })
+        const shadowLight = new THREE.DirectionalLight(0xffffff, 1.5)
+        shadowLight.position.set(
+          productRoot.position.x + 1.2,
+          productRoot.position.y + 7,
+          productRoot.position.z + 0.8,
+        )
+        shadowLight.target.position.copy(productRoot.position)
+        shadowLight.castShadow = true
+        shadowLight.shadow.mapSize.set(1024, 1024)
+        shadowLight.shadow.camera.near = 1
+        shadowLight.shadow.camera.far = 16 + half * 2
+        shadowLight.shadow.camera.left = -half
+        shadowLight.shadow.camera.right = half
+        shadowLight.shadow.camera.top = half
+        shadowLight.shadow.camera.bottom = -half
+        shadowLight.shadow.bias = -0.0005
+        shadowLight.shadow.radius = 5
+        shadowLight.shadow.camera.updateProjectionMatrix()
+        scene.add(shadowLight, shadowLight.target)
+
+        const pass = productOnlyPass()
+        try {
+          return renderCapture(dims.width, dims.height, () => {
+            renderer.shadowMap.needsUpdate = true
+            pass.setup()
+          }, pass.teardown)
+        } finally {
+          scene.remove(shadowLight, shadowLight.target)
+          for (const [node, visible] of savedLightVis) node.visible = visible
+          for (const { mesh, material } of matSaves) mesh.material = material
+          ghost.dispose()
+          productRoot.remove(shadowPlane)
+          shadowPlane.geometry.dispose()
+          ;(shadowPlane.material as THREE.Material).dispose()
+          for (const [node, culled] of cullSaves) node.frustumCulled = culled
+        }
+      } catch {
+        return null
+      }
     },
   }
 

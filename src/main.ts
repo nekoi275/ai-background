@@ -36,6 +36,7 @@ const stepperButtons = Array.from(
 
 const backButton = $<HTMLButtonElement>('back')
 const nextButton = $<HTMLButtonElement>('next')
+const restartButton = $<HTMLButtonElement>('restart')
 
 const productCard = $('product-card')
 const productBadge = $('product-badge')
@@ -84,8 +85,15 @@ nextButton.addEventListener('click', () => {
   if (step === 3) void generate()
   else setStep(Math.min(LAST_STEP, step + 1) as StepId)
 })
+restartButton.addEventListener('click', () => {
+  if (generating) return
+  resultReached = false
+  setStep(1)
+})
 
 function stepperReachable(target: StepId): boolean {
+  if (target === step) return true
+  if (generating || step === LAST_STEP) return false
   if (target === 1) return true
   if (target === LAST_STEP) return resultReached
   return product !== null
@@ -107,7 +115,9 @@ function updateNav(): void {
     button.classList.toggle('stepper__item--done', target < step)
     button.disabled = !stepperReachable(target)
   })
-  backButton.disabled = step === 1
+  backButton.hidden = step === LAST_STEP
+  backButton.disabled = step === 1 || generating
+  restartButton.hidden = step !== LAST_STEP || generating
   nextButton.hidden = step === LAST_STEP
   nextButton.textContent = step === 3 ? 'Generate' : 'Next'
   nextButton.disabled =

@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ai-surrounding-for-3d",
+  "name": "ai-background",
   "main": "worker/index.js",
   "compatibility_date": "2026-10-22",
   "assets": {
@@ -8,6 +8,6 @@
     "binding": "ASSETS"
   },
   "vars": {
-    "MODAL_API_URL": "https://nekoi275--ai-surrounding-api.us-east.modal.run"
+    "MODAL_API_URL": "https://nekoi275--ai-background-api.us-east.modal.run"
   }
 }

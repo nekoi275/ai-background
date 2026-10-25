@@ -72,7 +72,7 @@ MIN_SIDE = 512
 MAX_SIDE = 1536
 DEFAULT_SIDE = 1024
 
-app = modal.App("ai-surrounding")
+app = modal.App("ai-background")
 
 _IMAGE_ENV = {"HF_HOME": "/cache",
               "HF_HUB_ENABLE_HF_TRANSFER": "1",
@@ -103,7 +103,7 @@ api_image = (modal.Image.debian_slim(python_version="3.11")
 
 hf_vol = modal.Volume.from_name("hf-cache", create_if_missing=True)
 
-kv = modal.Dict.from_name("ai-surrounding-recovery", create_if_missing=True)
+kv = modal.Dict.from_name("ai-background-recovery", create_if_missing=True)
 MIN = 60
 KV_KEEP_SEEDS = 50
 

@@ -66,7 +66,7 @@ export function setupResultView(root: HTMLElement, onRegenerate: () => void): Re
     showResult(data) {
       image.src = data.imageUrl
       download.href = data.imageUrl
-      download.download = `surrounding-${data.seed}.jpg`
+      download.download = `ai-background-${data.seed}.jpg`
       meta('seed').textContent = String(data.seed)
       meta('time').textContent = `generated in ${data.seconds.toFixed(1)} s`
       showSection('result')

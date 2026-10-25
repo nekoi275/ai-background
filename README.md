@@ -1,7 +1,7 @@
-# AI Surrounding for 3D Object
+# AI Background
 
-Demo project: AI backgrounds for product photos **and** 3D models, framed
-by a configurable 3D box-room.
+Product photos **and** 3D models on AI-generated backgrounds, framed by a
+configurable 3D box-room.
 
 ## How it works
 
@@ -73,7 +73,7 @@ wrangler secret put API_TOKEN   # once: same value as the Modal secret
 npm run deploy                  # = vite build + wrangler deploy
 ```
 
-→ <https://ai-surrounding-for-3d.nekoi275.workers.dev>
+→ <https://ai-background.nekoi275.workers.dev>
 
 The Worker (`worker/index.js`) serves the static bundle and proxies
 `/api/*` to the Modal backend, injecting `Authorization` from its own
@@ -108,7 +108,7 @@ Vanilla TypeScript + Vite, room rendering with three.js.
 ## Manual testing (curl)
 
 ```bash
-API=https://<workspace>--ai-surrounding-api.modal.run
+API=https://<workspace>--ai-background-api.modal.run
 TOKEN=<API_TOKEN from the Modal secret "ai-background">
 
 # depth.png: any 8-bit grayscale image, bright = closer (from the browser

@@ -100,6 +100,9 @@ def depth_cond_from_png(raw: bytes, width: int, height: int) -> Image.Image:
         arr = 1.0 - np.clip((arr - lo) / max(hi - lo, 1e-6), 0, 1)
     else:
         arr = np.asarray(img.convert("L"), dtype=np.float32) / 255.0
+    arr = arr + (
+        np.random.default_rng().random(arr.shape, dtype=np.float32) - 0.5
+    ) / 255.0
     img = Image.fromarray((np.clip(arr, 0, 1) * 255).astype(np.uint8), "L")
     if img.size != (width, height):
         img = img.resize((width, height), Image.Resampling.BILINEAR)

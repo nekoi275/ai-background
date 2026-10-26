@@ -81,8 +81,16 @@ export function createDepthMaterial(): DepthShaderContext {
     uniform float uNear;
     uniform float uFar;
     varying float vDistance;
+    float bayer2(vec2 a) {
+      a = floor(a);
+      return fract(a.x / 2.0 + a.y * a.y * 0.75);
+    }
+    float bayer8(vec2 a) {
+      return bayer2(0.25 * a) * 0.0625 + bayer2(0.5 * a) * 0.25 + bayer2(a);
+    }
     void main() {
       float closeness = clamp((uFar - vDistance) / (uFar - uNear), 0.0, 1.0);
+      closeness += (bayer8(gl_FragCoord.xy) - 0.5) / 255.0;
       gl_FragColor = vec4(vec3(closeness), 1.0);
     }`
 

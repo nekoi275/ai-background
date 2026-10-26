@@ -159,9 +159,11 @@ def _kv_track_seed(seed: int) -> None:
 class Model:
     @modal.enter(snap=True)
     def load_weights(self):
-        import torch
-        from diffusers import (ControlNetModel,
-                               StableDiffusionXLImg2ImgPipeline)
+        import torch  # type: ignore[import-not-found]
+        from diffusers import (  # type: ignore[import-not-found]
+            ControlNetModel,
+            StableDiffusionXLImg2ImgPipeline,
+        )
         self.torch = torch
         self.base = StableDiffusionXLImg2ImgPipeline.from_pretrained(
             BG_MODEL, torch_dtype=torch.float16, use_safetensors=True)
@@ -170,8 +172,8 @@ class Model:
 
     @modal.enter()
     def start(self):
-        from diffusers import StableDiffusionXLControlNetPipeline
-        from transformers import pipeline as hf_pipeline
+        from diffusers import StableDiffusionXLControlNetPipeline  # type: ignore[import-not-found]
+        from transformers import pipeline as hf_pipeline  # type: ignore[import-not-found]
         self.cn = StableDiffusionXLControlNetPipeline(
             **self.base.components, controlnet=self.controlnet).to("cuda")
         self.cn.enable_vae_tiling()
@@ -308,7 +310,7 @@ def _cutout_product(img: Image.Image) -> Image.Image:
     cached on the shared volume via U2NET_HOME, so only the very first
     cold start downloads anything."""
     global _cutout_session
-    from rembg import new_session, remove
+    from rembg import new_session, remove  # type: ignore[import-not-found]
     if _cutout_session is None:
         _cutout_session = new_session("u2net")
     return remove(img, session=_cutout_session).convert("RGBA")
@@ -375,7 +377,7 @@ def _contact_shadow(out: Image.Image, plate_img: Image.Image) -> Image.Image:
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
 
-def _blend_reflection(out: Image.Image, reflection_img: Image.Image,
+def _blend_reflection(out: Image.Image, reflection_img: Image.Image | None,
                       width: int, height: int) -> Image.Image:
     """Floor reflection from the 3D pass: the mirrored product rendered
     with the same camera/env. Blurred slightly, faded to nothing over the
@@ -541,8 +543,12 @@ def api():
             t0 = time.time()
             src = Image.open(io.BytesIO(image.file.read()))
             rgba = src.convert("RGBA") if "A" in src.getbands() else None
-            if rgba is not None and rgba.getextrema()[3][0] < 250:
-                cutout_img = rgba
+            if rgba is not None:
+                ext = rgba.getchannel("A").getextrema()
+                if isinstance(ext[0], (int, float)) and ext[0] < 250:
+                    cutout_img = rgba
+                else:
+                    cutout_img = _cutout_product(src.convert("RGB"))
             else:
                 cutout_img = _cutout_product(src.convert("RGB"))
             out = _alpha_trimmed(cutout_img)
@@ -587,7 +593,7 @@ def api():
         try:
             cond_png = _png_bytes(_depth_cond_from_png(raw_depth, width, height))
 
-            raw, depth_png = Model().compose_scene.remote(
+            raw, depth_png = Model().compose_scene.remote(  # type: ignore[misc]
                 seed=seed, prompt=prompt, neg=neg,
                 width=width, height=height, cond_png=cond_png)
             scene_img = Image.open(io.BytesIO(raw)).convert("RGB")

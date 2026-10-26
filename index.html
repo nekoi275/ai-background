@@ -63,6 +63,16 @@
               </div>
               <button class="product-card__replace" type="button" id="product-replace">Replace</button>
             </div>
+
+            <div class="cutout-tip" id="cutout-tip" hidden>
+              <p class="cutout-tip__text">
+                Cutout edges look rough or parts are missing? The automatic
+                color keying is approximate — AI background removal usually
+                handles tricky photos better.
+              </p>
+              <button class="btn-ghost cutout-tip__btn" id="cutout-ai" type="button">Remove background with AI</button>
+              <p class="cutout-tip__error" id="cutout-error" hidden></p>
+            </div>
           </div>
         </section>
 
@@ -96,8 +106,23 @@
               </label>
               <div class="controls__group" id="table-controls">
                 <label class="control">
-                  <span class="control__head"><span>Size</span><b data-out="table-size">0.60 m</b></span>
-                  <input type="range" id="table-size" min="0.05" max="6" step="0.05" value="0.6" />
+                  <span class="control__head"><span>Shape</span></span>
+                  <select class="control__select" id="table-shape">
+                    <option value="box">Box</option>
+                    <option value="cylinder">Cylinder</option>
+                  </select>
+                </label>
+                <label class="control">
+                  <span class="control__head"><span>Width</span><b data-out="table-width">0.60 m</b></span>
+                  <input type="range" id="table-width" min="0.05" max="6" step="0.05" value="0.6" />
+                </label>
+                <label class="control">
+                  <span class="control__head"><span>Depth</span><b data-out="table-depth">0.60 m</b></span>
+                  <input type="range" id="table-depth" min="0.05" max="6" step="0.05" value="0.6" />
+                </label>
+                <label class="control">
+                  <span class="control__head"><span>Height</span><b data-out="table-height">0.60 m</b></span>
+                  <input type="range" id="table-height" min="0.05" max="6" step="0.05" value="0.6" />
                 </label>
                 <label class="control">
                   <span class="control__head"><span>Position X</span><b data-out="table-x">0.00 m</b></span>
@@ -108,6 +133,13 @@
                   <input type="range" id="table-z" min="-10" max="10" step="0.05" value="0" />
                 </label>
               </div>
+
+              <h3 class="controls__title">Surface</h3>
+              <label class="control control--toggle">
+                <span>Glossy surface</span>
+                <input type="checkbox" id="surface-glossy" checked />
+              </label>
+              <p class="controls__hint">Reflection under the product</p>
 
               <h3 class="controls__title">Object</h3>
               <div id="photo-controls" hidden>

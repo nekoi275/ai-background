@@ -44,13 +44,22 @@ class GenerationSettings:
 
 settings = GenerationSettings()
 
+GEOMETRY_FLOOR_GLOSSY = "subtly glossy floor"
+GEOMETRY_FLOOR_MATTE = "matte non-reflective floor"
+
 GEOMETRY_BASE = (
     "eye-level wide-angle photograph of the interior shown in the depth image, "
     "the room layout, walls and floor follow the depth map exactly, "
     "the center of the frame stays clear as the stage for the shot's main subject, "
     "everything else furnished and decorated in rich detail following the prompt, "
-    "subtly glossy floor, highly detailed, sharp focus, photorealistic"
+    "{floor}, highly detailed, sharp focus, photorealistic"
 )
+
+
+def geometry_base(glossy: bool) -> str:
+    return GEOMETRY_BASE.format(
+        floor=GEOMETRY_FLOOR_GLOSSY if glossy else GEOMETRY_FLOOR_MATTE
+    )
 
 SCENE_NEG = (
     "people, person, text, watermark, logo, cartoon, painting, illustration, "
@@ -63,7 +72,6 @@ MAX_SIDE = 1536
 DEFAULT_SIDE = 1024
 KV_KEEP_SEEDS = 50
 
-# Environment dictionary for Modal container images
 IMAGE_ENV = {
     "HF_HOME": "/cache",
     "HF_HUB_ENABLE_HF_TRANSFER": "1",

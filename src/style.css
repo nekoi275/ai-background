@@ -202,7 +202,7 @@ body {
 }
 
 .dropzone__preview {
-  max-height: 140px;
+  max-height: min(340px, 50vh);
   max-width: 100%;
   object-fit: contain;
   border-radius: 6px;
@@ -299,6 +299,36 @@ body {
 .product-card__replace:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.cutout-tip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.cutout-tip__text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.cutout-tip__btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.cutout-tip__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
 }
 
 .studio {
@@ -398,6 +428,22 @@ body {
 .control input[type='range'] {
   width: 100%;
   accent-color: var(--accent);
+}
+
+.control__select {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font: inherit;
+  color: inherit;
+}
+
+.control__select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(47 111 237 / 0.15);
 }
 
 .control--toggle {

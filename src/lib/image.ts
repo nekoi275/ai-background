@@ -75,18 +75,7 @@ export interface PhotoCutout {
   height: number
 }
 
-export async function preparePhotoCutout(
-  file: File,
-  remoteCutout: (png: Blob) => Promise<Blob>,
-): Promise<PhotoCutout> {
-  const png = await normalizeImageToPng(file)
-  let cutout: Blob
-  if (await pngHasRealAlpha(png)) {
-    cutout = await trimAlphaPng(png)
-  } else {
-    const chroma = await chromaKeyCutout(png)
-    cutout = chroma ? await trimAlphaPng(chroma) : await remoteCutout(png)
-  }
+async function toPhotoCutout(cutout: Blob): Promise<PhotoCutout> {
   const bitmap = await createImageBitmap(cutout)
   const result: PhotoCutout = {
     png: cutout,
@@ -97,4 +86,42 @@ export async function preparePhotoCutout(
   }
   bitmap.close()
   return result
+}
+
+export type CutoutMethod = 'alpha' | 'chromakey' | 'ai'
+
+export interface PreparedPhoto {
+  sourcePng: Blob
+  cutout: PhotoCutout
+  method: CutoutMethod
+}
+
+export async function preparePhotoCutout(
+  file: File,
+  remoteCutout: (png: Blob) => Promise<Blob>,
+): Promise<PreparedPhoto> {
+  const sourcePng = await normalizeImageToPng(file)
+  let cutout: Blob
+  let method: CutoutMethod
+  if (await pngHasRealAlpha(sourcePng)) {
+    cutout = await trimAlphaPng(sourcePng)
+    method = 'alpha'
+  } else {
+    const chroma = await chromaKeyCutout(sourcePng)
+    if (chroma) {
+      cutout = await trimAlphaPng(chroma)
+      method = 'chromakey'
+    } else {
+      cutout = await remoteCutout(sourcePng)
+      method = 'ai'
+    }
+  }
+  return { sourcePng, cutout: await toPhotoCutout(cutout), method }
+}
+
+export async function aiPhotoCutout(
+  sourcePng: Blob,
+  remoteCutout: (png: Blob) => Promise<Blob>,
+): Promise<PhotoCutout> {
+  return toPhotoCutout(await remoteCutout(sourcePng))
 }

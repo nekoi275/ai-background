@@ -1,12 +1,12 @@
 import './style.css'
 import { api } from './api.ts'
 import { detectProductFile } from './lib/file-type.ts'
-import { preparePhotoCutout } from './lib/image.ts'
+import { preparePhotoCutout, aiPhotoCutout } from './lib/image.ts'
 import { base64ToBlob, dataUrlToBlob } from './lib/encode.ts'
 import { setupDropzone } from './components/dropzone.ts'
 import { loadModelFile } from './components/model-loader.ts'
 import { createStudioScene } from './components/studio/index.ts'
-import type { ProductData, RoomConfig, TableConfig } from './components/studio/index.ts'
+import type { ProductData, RoomConfig, TableConfig, TableShape } from './components/studio/index.ts'
 import { setupResultView } from './components/result-view.ts'
 
 type StepId = 1 | 2 | 3 | 4
@@ -18,6 +18,8 @@ interface LoadedProduct {
   details: string
   data: ProductData
   previewUrl: string | null
+  sourcePng: Blob | null
+  canUpgradeCutout: boolean
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -41,6 +43,9 @@ const productBadge = $('product-badge')
 const productName = $('product-name')
 const productDetails = $('product-details')
 const productReplace = $('product-replace')
+const cutoutTip = $('cutout-tip')
+const cutoutAiButton = $<HTMLButtonElement>('cutout-ai')
+const cutoutError = $('cutout-error')
 
 const photoControls = $('photo-controls')
 const modelInfo = $('model-info')
@@ -56,11 +61,15 @@ const roomInputs = {
 }
 const tableInputs = {
   visible: $<HTMLInputElement>('table-visible'),
-  size: $<HTMLInputElement>('table-size'),
+  shape: $<HTMLSelectElement>('table-shape'),
+  width: $<HTMLInputElement>('table-width'),
+  depth: $<HTMLInputElement>('table-depth'),
+  height: $<HTMLInputElement>('table-height'),
   x: $<HTMLInputElement>('table-x'),
   z: $<HTMLInputElement>('table-z'),
 }
 const photoHeightInput = $<HTMLInputElement>('photo-height')
+const surfaceGlossyInput = $<HTMLInputElement>('surface-glossy')
 
 const scene = createStudioScene($('scene'))
 const dropzone = setupDropzone($('dropzone'), (file) => void handleProductFile(file))
@@ -135,13 +144,15 @@ async function handleProductFile(file: File): Promise<void> {
     const detected = await detectProductFile(file)
     if (detected.kind === 'image') {
       dropzone.showStatus('Removing the background…')
-      const cutout = await preparePhotoCutout(file, api.cutout)
+      const prepared = await preparePhotoCutout(file, api.cutout)
       product = {
         kind: 'photo',
         name: file.name,
-        details: `Photo · ${cutout.width} × ${cutout.height} px`,
-        data: { kind: 'photo', url: cutout.url, aspect: cutout.aspect },
-        previewUrl: cutout.url,
+        details: `Photo · ${prepared.cutout.width} × ${prepared.cutout.height} px`,
+        data: { kind: 'photo', url: prepared.cutout.url, aspect: prepared.cutout.aspect },
+        previewUrl: prepared.cutout.url,
+        sourcePng: prepared.sourcePng,
+        canUpgradeCutout: prepared.method === 'chromakey',
       }
     } else {
       dropzone.showStatus('Loading the 3D model…')
@@ -152,6 +163,8 @@ async function handleProductFile(file: File): Promise<void> {
         details: `3D model · ${formatSize(model.size)}`,
         data: { kind: 'model', object: model.object },
         previewUrl: null,
+        sourcePng: null,
+        canUpgradeCutout: false,
       }
     }
     scene.setProduct(product.data)
@@ -168,6 +181,37 @@ async function handleProductFile(file: File): Promise<void> {
   }
 }
 
+async function upgradePhotoCutout(): Promise<void> {
+  if (!product || product.kind !== 'photo' || !product.sourcePng || !product.canUpgradeCutout || busy) return
+  busy = true
+  cutoutAiButton.disabled = true
+  cutoutError.hidden = true
+  cutoutAiButton.textContent = 'Removing…'
+  updateNav()
+  try {
+    const cutout = await aiPhotoCutout(product.sourcePng, api.cutout)
+    if (product.previewUrl) URL.revokeObjectURL(product.previewUrl)
+    product.data = { kind: 'photo', url: cutout.url, aspect: cutout.aspect }
+    product.previewUrl = cutout.url
+    product.details = `Photo · ${cutout.width} × ${cutout.height} px`
+    product.canUpgradeCutout = false
+    scene.setProduct(product.data)
+    dropzone.setFilled(product.name, product.previewUrl)
+    showProductCard()
+    updateNav()
+  } catch (error) {
+    cutoutError.textContent = error instanceof Error ? error.message : String(error)
+    cutoutError.hidden = false
+  } finally {
+    busy = false
+    cutoutAiButton.disabled = false
+    cutoutAiButton.textContent = 'Remove background with AI'
+    updateNav()
+  }
+}
+
+cutoutAiButton.addEventListener('click', () => void upgradePhotoCutout())
+
 function showProductCard(): void {
   productCard.hidden = !product
   if (!product) return
@@ -178,6 +222,8 @@ function showProductCard(): void {
   photoControls.hidden = product.kind !== 'photo'
   modelInfo.hidden = product.kind !== 'model'
   if (product.kind === 'model') modelInfo.textContent = product.details
+  cutoutTip.hidden = !(product.kind === 'photo' && product.canUpgradeCutout)
+  cutoutError.hidden = true
 }
 
 productReplace.addEventListener('click', () => document.getElementById('dropzone')!.click())
@@ -193,17 +239,22 @@ function currentRoom(): RoomConfig {
 function currentTable(): TableConfig {
   return {
     visible: tableInputs.visible.checked,
-    size: Number(tableInputs.size.value),
+    shape: tableInputs.shape.value as TableShape,
+    width: Number(tableInputs.width.value),
+    depth: Number(tableInputs.depth.value),
+    height: Number(tableInputs.height.value),
     x: Number(tableInputs.x.value),
     z: Number(tableInputs.z.value),
   }
 }
 
 function clampTableToRoom(room: RoomConfig, table: TableConfig): TableConfig {
-  const limit = Math.min(room.width, room.depth, room.height)
-  if (table.size > limit) table.size = Math.round(limit * 20) / 20
-  const halfX = Math.max(0, room.width / 2 - table.size / 2)
-  const halfZ = Math.max(0, room.depth / 2 - table.size / 2)
+  const snap = (value: number, limit: number) => Math.round(Math.min(value, limit) * 20) / 20
+  table.width = snap(table.width, room.width)
+  table.depth = snap(table.depth, room.depth)
+  table.height = snap(table.height, room.height)
+  const halfX = Math.max(0, room.width / 2 - table.width / 2)
+  const halfZ = Math.max(0, room.depth / 2 - table.depth / 2)
   table.x = Math.min(halfX, Math.max(-halfX, table.x))
   table.z = Math.min(halfZ, Math.max(-halfZ, table.z))
   return table
@@ -217,12 +268,15 @@ function applyScene(): void {
   tableInputs.x.max = String(room.width / 2)
   tableInputs.z.min = String(-room.depth / 2)
   tableInputs.z.max = String(room.depth / 2)
-  tableInputs.size.value = String(table.size)
+  tableInputs.width.value = String(table.width)
+  tableInputs.depth.value = String(table.depth)
+  tableInputs.height.value = String(table.height)
   tableInputs.x.value = String(table.x)
   tableInputs.z.value = String(table.z)
   $('table-controls').classList.toggle('controls__group--disabled', !table.visible)
   scene.setRoom(room)
   scene.setTable(table)
+  scene.setGlossy(surfaceGlossyInput.checked)
   if (product?.kind === 'photo') scene.setPhotoHeight(Number(photoHeightInput.value) / 100)
 }
 
@@ -230,7 +284,9 @@ function syncControlOutputs(): void {
   setOut('room-width', `${Number(roomInputs.width.value).toFixed(1)} m`)
   setOut('room-height', `${Number(roomInputs.height.value).toFixed(1)} m`)
   setOut('room-depth', `${Number(roomInputs.depth.value).toFixed(1)} m`)
-  setOut('table-size', `${Number(tableInputs.size.value).toFixed(2)} m`)
+  setOut('table-width', `${Number(tableInputs.width.value).toFixed(2)} m`)
+  setOut('table-depth', `${Number(tableInputs.depth.value).toFixed(2)} m`)
+  setOut('table-height', `${Number(tableInputs.height.value).toFixed(2)} m`)
   setOut('table-x', `${Number(tableInputs.x.value).toFixed(2)} m`)
   setOut('table-z', `${Number(tableInputs.z.value).toFixed(2)} m`)
   setOut('photo-height', `${photoHeightInput.value}%`)
@@ -248,6 +304,7 @@ for (const input of Object.values(tableInputs)) {
   input.addEventListener('input', applyScene)
 }
 photoHeightInput.addEventListener('input', applyScene)
+surfaceGlossyInput.addEventListener('input', applyScene)
 
 function formatSize(size: { x: number; y: number; z: number }): string {
   return `${size.x.toFixed(2)} × ${size.z.toFixed(2)} × ${size.y.toFixed(2)} m (W × D × H)`
@@ -263,12 +320,13 @@ async function generate(): Promise<void> {
   updateNav()
   setStep(4)
   const seed = randomSeed()
+  const glossy = surfaceGlossyInput.checked
   try {
     resultView.showStatus('Rendering the shot from your camera…')
     const frame = scene.captureSize()
     const depth = dataUrlToBlob(scene.captureDepth())
     const plate = dataUrlToBlob(scene.capturePlate())
-    const reflection = scene.captureReflection()
+    const reflection = glossy ? scene.captureReflection() : null
     const shadow = scene.captureShadow()
 
     resultView.showStatus('Painting the background…')
@@ -279,6 +337,7 @@ async function generate(): Promise<void> {
         height: frame.height,
         prompt: promptInput.value.trim(),
         negative_prompt: negativePromptInput.value.trim(),
+        glossy,
       },
       depth,
     )
@@ -288,7 +347,7 @@ async function generate(): Promise<void> {
       plate,
       base64ToBlob(sceneRes.scene_b64, 'image/jpeg'),
       base64ToBlob(sceneRes.depth_b64, 'image/png'),
-      { seed },
+      { seed, glossy },
       reflection ? dataUrlToBlob(reflection) : null,
       shadow ? dataUrlToBlob(shadow) : null,
     )

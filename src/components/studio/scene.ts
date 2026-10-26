@@ -2,10 +2,10 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import {
-  BACKDROP_COLOR,
   createDepthMaterial,
   createRoomMaterials,
   createTableMaterial,
+  setSurfaceGlossiness,
 } from './materials.ts'
 import {
   calculateCaptureDims,
@@ -16,9 +16,14 @@ import {
   renderCapture,
   type RenderContext,
 } from './passes.ts'
-import type { RoomConfig, StudioScene, TableConfig } from './types.ts'
+import type { RoomConfig, StudioScene, TableConfig, TableShape } from './types.ts'
 
 const FOV = 50
+
+const tableGeometry: Record<TableShape, THREE.BufferGeometry> = {
+  box: new THREE.BoxGeometry(1, 1, 1),
+  cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 48),
+}
 
 export function createStudioScene(root: HTMLElement): StudioScene {
   const canvas = document.createElement('canvas')
@@ -30,7 +35,6 @@ export function createStudioScene(root: HTMLElement): StudioScene {
   renderer.toneMapping = THREE.ACESFilmicToneMapping
 
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(BACKDROP_COLOR)
 
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 500)
   camera.position.set(2.2, 1.8, 1.6)
@@ -42,8 +46,13 @@ export function createStudioScene(root: HTMLElement): StudioScene {
   controls.maxDistance = 100
   controls.target.set(0, 1.1, 0)
 
-  const roomMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), createRoomMaterials())
-  const tableMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), createTableMaterial())
+  const roomMaterials = createRoomMaterials()
+  const roomMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), roomMaterials.materials)
+  const tableMaterial = createTableMaterial()
+  const tableMesh = new THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>(
+    tableGeometry.box,
+    tableMaterial,
+  )
   tableMesh.visible = false
 
   const productRoot = new THREE.Group()
@@ -53,12 +62,15 @@ export function createStudioScene(root: HTMLElement): StudioScene {
   let photoAspect = 1
   let hasModelProduct = false
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc8bd, 1.1))
-  const key = new THREE.DirectionalLight(0xffffff, 2.0)
-  key.position.set(3, 6, 4)
-  const fill = new THREE.DirectionalLight(0xffffff, 0.7)
-  fill.position.set(-4, 5, -3)
-  scene.add(key, fill)
+scene.add(
+  new THREE.AmbientLight(0xffffff, 2.2),
+  new THREE.HemisphereLight(0xffffff, 0xcfc8bd, 0.35),
+)
+const key = new THREE.DirectionalLight(0xffffff, 0.8)
+key.position.set(3, 6, 4)
+const fill = new THREE.DirectionalLight(0xffffff, 0.3)
+fill.position.set(-4, 5, -3)
+scene.add(key, fill)
 
   const depthContext = createDepthMaterial()
 
@@ -66,11 +78,11 @@ export function createStudioScene(root: HTMLElement): StudioScene {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
   const pmrem = new THREE.PMREMGenerator(renderer)
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+  const environmentTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
   pmrem.dispose()
 
   const room: RoomConfig = { width: 5, height: 3, depth: 5 }
-  const table: TableConfig = { visible: false, size: 0.6, x: 0, z: 0 }
+  const table: TableConfig = { visible: false, shape: 'box', width: 0.6, depth: 0.6, height: 0.6, x: 0, z: 0 }
   let photoHeight = 0.45
 
   new ResizeObserver(resize).observe(root)
@@ -110,14 +122,17 @@ export function createStudioScene(root: HTMLElement): StudioScene {
   }
 
   function applyTable(): void {
-    tableMesh.scale.setScalar(table.size)
-    tableMesh.position.set(table.x, table.size / 2, table.z)
+    if (tableMesh.geometry !== tableGeometry[table.shape]) {
+      tableMesh.geometry = tableGeometry[table.shape]
+    }
+    tableMesh.scale.set(table.width, table.height, table.depth)
+    tableMesh.position.set(table.x, table.height / 2, table.z)
     tableMesh.visible = table.visible
     placeProduct()
   }
 
   function placeProduct(): void {
-    productRoot.position.set(table.x, table.visible ? table.size : 0, table.z)
+    productRoot.position.set(table.x, table.visible ? table.height : 0, table.z)
     if (billboard) {
       const height = photoHeight * room.height
       billboard.scale.set(height * photoAspect, height, 1)
@@ -193,8 +208,10 @@ export function createStudioScene(root: HTMLElement): StudioScene {
           mesh.receiveShadow = true
           const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
           for (const material of materials) {
-            if ('envMapIntensity' in material) {
-              ;(material as THREE.MeshStandardMaterial).envMapIntensity = 1.15
+            const std = material as THREE.MeshStandardMaterial
+            if ('envMapIntensity' in std) {
+              std.envMap = environmentTexture
+              std.envMapIntensity = 1.4
             }
           }
         })
@@ -205,6 +222,10 @@ export function createStudioScene(root: HTMLElement): StudioScene {
     setPhotoHeight(fraction) {
       photoHeight = fraction
       placeProduct()
+    },
+
+    setGlossy(glossy) {
+      setSurfaceGlossiness(roomMaterials.floor, tableMaterial, glossy)
     },
 
     captureSize() {

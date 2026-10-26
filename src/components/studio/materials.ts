@@ -1,35 +1,58 @@
 import * as THREE from 'three'
 
-export const WALL_COLOR = 0xede9e1
-export const CEILING_COLOR = 0xf4f1eb
-export const FLOOR_COLOR = 0xdcd5c9
-export const TABLE_COLOR = 0xe3d8c6
-export const BACKDROP_COLOR = 0xf0eeeb
+export const WALL_COLOR = 0xf2e9e4
+export const CEILING_COLOR = 0xc9ada7
+export const FLOOR_COLOR = 0x9a8c98
+export const TABLE_COLOR = 0x4a4e69
 
-export function createRoomMaterials(): THREE.Material[] {
+export interface RoomMaterials {
+  materials: THREE.Material[]
+  floor: THREE.MeshStandardMaterial
+}
+
+export function createRoomMaterials(): RoomMaterials {
   function wall() {
     return new THREE.MeshStandardMaterial({
       color: WALL_COLOR,
       roughness: 0.9,
       side: THREE.BackSide,
+      toneMapped: false,
     })
   }
 
-  return [
-    wall(),
-    wall(),
-    new THREE.MeshStandardMaterial({ color: CEILING_COLOR, roughness: 0.95 }),
-    new THREE.MeshStandardMaterial({ color: FLOOR_COLOR, roughness: 0.85 }),
-    wall(),
-    wall(),
-  ]
+  const ceiling = new THREE.MeshStandardMaterial({
+    color: CEILING_COLOR,
+    roughness: 0.95,
+    side: THREE.BackSide,
+    toneMapped: false,
+  })
+  const floor = new THREE.MeshStandardMaterial({
+    color: FLOOR_COLOR,
+    roughness: 0.85,
+    side: THREE.BackSide,
+    toneMapped: false,
+  })
+  return {
+    materials: [wall(), wall(), ceiling, floor, wall(), wall()],
+    floor,
+  }
 }
 
 export function createTableMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color: TABLE_COLOR,
     roughness: 0.8,
+    toneMapped: false,
   })
+}
+
+export function setSurfaceGlossiness(
+  floor: THREE.MeshStandardMaterial,
+  table: THREE.MeshStandardMaterial,
+  glossy: boolean,
+): void {
+  floor.roughness = glossy ? 0.25 : 0.85
+  table.roughness = glossy ? 0.3 : 0.8
 }
 
 export interface DepthShaderContext {

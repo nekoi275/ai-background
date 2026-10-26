@@ -6,9 +6,14 @@ export interface RoomConfig {
   depth: number
 }
 
+export type TableShape = 'box' | 'cylinder'
+
 export interface TableConfig {
   visible: boolean
-  size: number
+  shape: TableShape
+  width: number
+  depth: number
+  height: number
   x: number
   z: number
 }
@@ -22,6 +27,7 @@ export interface StudioScene {
   setTable(table: TableConfig): void
   setProduct(product: ProductData | null): void
   setPhotoHeight(fraction: number): void
+  setGlossy(glossy: boolean): void
   captureSize(): { width: number; height: number }
   captureView(): string
   captureDepth(): string

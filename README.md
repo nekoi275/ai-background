@@ -10,23 +10,29 @@ the 3D scene, so what you frame in the editor is exactly what generation
 receives.
 
 1. **Product.** Drop a photo (JPG/PNG/WebP) or a 3D model (GLB/GLTF/OBJ/FBX).
-   Photos without transparency are cut out via `POST /api/cutout` (rembg;
-   PNGs with real alpha are trimmed client-side). 3D models keep their
-   native size in meters.
+   Photos without transparency are keyed out client-side (chroma-key); if
+   the edges look off, one click re-runs the cutout with AI (`POST
+   /api/cutout`, rembg). PNGs with real alpha are trimmed client-side.
+   3D models keep their native size in meters.
 2. **Scene.** A light box-room with adjustable width/height/depth, an
-   optional table cube (the product stands on it when visible), and — for
-   photos — an object-height slider. Orbit the camera inside the room to
-   set the shot; the viewport is square, matching the output frame.
+   optional table pedestal — box or cylinder, with independent
+   width/depth/height — (the product stands on it when visible), a
+   glossy-surface toggle (reflection under the product; shadows are kept
+   either way), and — for photos — an object-height slider. Orbit the
+   camera inside the room to set the shot; the viewport is square,
+   matching the output frame.
 3. **Prompt.** Describe the background (plus a negative prompt). The
    frontend renders a depth pass of room + table + product (bright =
    closer, range adapted to the room) and posts it with the prompt to
    `POST /api/scene`: SDXL + ControlNet-Depth paints the interior locked
    to that geometry — the backend only appends a geometry-anchoring base
-   (`GEOMETRY_BASE` in `app.py`).
+   (`geometry_base` in `backend/config.py`), whose floor phrase follows
+   the glossy toggle.
 4. **Result.** `POST /api/compose` receives the client-rendered product
    plate — the product alone on a transparent background, native
    proportions, framed by the user's camera — pasted 1:1, grounded with a
-   contact shadow and blended with depth-of-field + unified grain.
+   contact shadow, blended with depth-of-field + unified grain, plus a
+   floor reflection when the glossy toggle is on.
    Download or generate a new variation (new seed).
 
 Uploads are normalized to PNG in a canvas (EXIF orientation applied,
@@ -104,7 +110,8 @@ Vanilla TypeScript + Vite, room rendering with three.js.
 - `src/components/model-loader.ts` — GLB/GLTF/OBJ/FBX → centered object
 - `src/components/result-view.ts` — step-4 panel (status/result/error)
 - `src/lib/file-type.ts` — image vs 3D-model detection (extension + magic)
-- `src/lib/image.ts` — PNG normalization, alpha checks, cutout trimming
+- `src/lib/chroma-key.ts` — client-side background keying (border color + flood fill)
+- `src/lib/image.ts` — PNG normalization, alpha checks, chroma-key → AI cutout flow
 - `src/lib/encode.ts` — base64/data-URL ↔ Blob helpers
 
 ## Manual testing (curl)

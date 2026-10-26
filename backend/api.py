@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from PIL import Image
 
-from .config import DEFAULT_SIDE, GEOMETRY_BASE, SCENE_NEG, settings
+from .config import DEFAULT_SIDE, SCENE_NEG, geometry_base, settings
 from .cutout import alpha_trimmed, cutout_product
 from .depth import (
     depth_cond_from_png,
@@ -32,10 +32,12 @@ class SceneRequestParams(BaseModel):
     height: float = Field(default=DEFAULT_SIDE)
     prompt: str = ""
     negative_prompt: str = ""
+    glossy: bool = True
 
 
 class ComposeRequestParams(BaseModel):
     seed: int | None = None
+    glossy: bool = True
 
 
 def verify_token(authorization: str | None = Header(None)) -> None:
@@ -151,9 +153,9 @@ def create_app(
 
         user_prompt = p.prompt.strip()
         prompt = (
-            f"{user_prompt}, {GEOMETRY_BASE}"
+            f"{user_prompt}, {geometry_base(p.glossy)}"
             if user_prompt
-            else GEOMETRY_BASE
+            else geometry_base(p.glossy)
         )
         neg = p.negative_prompt.strip() or SCENE_NEG
         raw_depth = depth.file.read()
@@ -249,7 +251,7 @@ def create_app(
                 )
 
             reflection_img = None
-            if reflection is not None:
+            if reflection is not None and p.glossy:
                 raw_refl = reflection.file.read()
                 if raw_refl:
                     reflection_img = load_image(raw_refl, "RGBA")

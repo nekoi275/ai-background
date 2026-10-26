@@ -4,6 +4,7 @@ export interface SceneParams {
   height: number
   prompt: string
   negative_prompt: string
+  glossy: boolean
 }
 
 export interface SceneResult {
@@ -99,7 +100,7 @@ export const api = {
     plate: Blob,
     scene: Blob,
     depth: Blob,
-    params: { seed: number },
+    params: { seed: number; glossy: boolean },
     reflection: Blob | null = null,
     shadow: Blob | null = null,
   ): Promise<ComposeResult> {

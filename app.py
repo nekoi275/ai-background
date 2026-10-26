@@ -30,18 +30,18 @@ def _env_int(name: str, default: int) -> int:
 BG_MODEL = os.environ.get("GEN_BG_MODEL", "SG161222/RealVisXL_V4.0")
 DEPTH_MODEL = os.environ.get("GEN_DEPTH_MODEL", "depth-anything/Depth-Anything-V2-Small-hf")
 GEN_CN_MODEL = os.environ.get("GEN_CN_MODEL", "diffusers/controlnet-depth-sdxl-1.0")
-GEN_STEPS = _env_int("GEN_STEPS", 24)
-GEN_GUIDANCE = _env_float("GEN_GUIDANCE", 6.5)
+GEN_STEPS = _env_int("GEN_STEPS", 32)
+GEN_GUIDANCE = _env_float("GEN_GUIDANCE", 7.0)
 GEN_CN_SCALE = _env_float("GEN_CN_SCALE", 0.65)
 GEN_CN_END = _env_float("GEN_CN_END", 0.75)
-GEN_DOF_SPREAD = _env_float("GEN_DOF_SPREAD", 0.55)
-FOCUS_BLUR_MAX = _env_float("GEN_FOCUS_BLUR_MAX", 2.5)
+GEN_DOF_SPREAD = _env_float("GEN_DOF_SPREAD", 0.7)
+FOCUS_BLUR_MAX = _env_float("GEN_FOCUS_BLUR_MAX", 2.0)
 REFLECT_STRENGTH = _env_float("GEN_REFLECT_STRENGTH", 0.45)
 REFLECT_FADE_FRAC = _env_float("GEN_REFLECT_FADE_FRAC", 0.3)
 REFLECT_BLUR = _env_float("GEN_REFLECT_BLUR", 2.5)
 SHADOW_STRENGTH = _env_float("GEN_SHADOW_STRENGTH", 0.5)
 SHADOW_BLUR = _env_float("GEN_SHADOW_BLUR", 6.0)
-BG_DEFOCUS = _env_float("GEN_BG_DEFOCUS", 1.2)
+BG_DEFOCUS = _env_float("GEN_BG_DEFOCUS", 0.6)
 PRODUCT_SHARPEN = _env_float("GEN_PRODUCT_SHARPEN", 0.35)
 GEN_GRAIN = _env_float("GEN_GRAIN", 1.3)
 API_TOKEN = os.environ.get("API_TOKEN", "").strip()
@@ -49,13 +49,14 @@ API_TOKEN = os.environ.get("API_TOKEN", "").strip()
 GEOMETRY_BASE = (
     "eye-level wide-angle photograph of the interior shown in the depth image, "
     "the room layout, walls and floor follow the depth map exactly, "
-    "smooth clean empty floor in the foreground with subtle glossy reflections, "
-    "photorealistic"
+    "the center of the frame stays clear as the stage for the shot's main subject, "
+    "everything else furnished and decorated in rich detail following the prompt, "
+    "subtly glossy floor, highly detailed, sharp focus, photorealistic"
 )
 SCENE_NEG = (
     "people, person, text, watermark, logo, cartoon, painting, illustration, "
-    "low quality, blurry, clutter, debris, objects on the floor in the foreground, "
-    "dark, gloomy, dirty floor"
+    "low quality,"
+    "dark, gloomy, dirty floor, garbage, debris"
 )
 
 MIN_SIDE = 512

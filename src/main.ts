@@ -5,8 +5,8 @@ import { preparePhotoCutout } from './lib/image.ts'
 import { base64ToBlob, dataUrlToBlob } from './lib/encode.ts'
 import { setupDropzone } from './components/dropzone.ts'
 import { loadModelFile } from './components/model-loader.ts'
-import { createStudioScene } from './components/studio-scene.ts'
-import type { ProductData, RoomConfig, TableConfig } from './components/studio-scene.ts'
+import { createStudioScene } from './components/studio/index.ts'
+import type { ProductData, RoomConfig, TableConfig } from './components/studio/index.ts'
 import { setupResultView } from './components/result-view.ts'
 
 type StepId = 1 | 2 | 3 | 4

@@ -91,15 +91,17 @@ anything, including `/api/*`.
 
 Vanilla TypeScript + Vite, room rendering with three.js.
 
+- `app.py` — Modal deployment entrypoint
+- `backend/` — backend pipeline package (api, compositing, cutout, depth, models, storage, config)
 - `src/main.ts` — 4-step wizard state machine + generation flow
 - `src/api.ts` — same-origin client for the backend endpoints from `app.py`
 - `vite.config.ts` — dev proxy: /api/* → Modal with the token injected
 - `worker/index.js` — Cloudflare Worker: static assets + token-injecting
   /api/* proxy for production
+- `src/components/studio/` — 3D studio package: room box, table,
+  product (billboard or model), orbit camera, depth/plate/snapshot capture passes
 - `src/components/dropzone.ts` — drag & drop visuals for product files
 - `src/components/model-loader.ts` — GLB/GLTF/OBJ/FBX → centered object
-- `src/components/studio-scene.ts` — the 3D studio: room box, table,
-  product (billboard or model), orbit camera, depth/plate/snapshot capture
 - `src/components/result-view.ts` — step-4 panel (status/result/error)
 - `src/lib/file-type.ts` — image vs 3D-model detection (extension + magic)
 - `src/lib/image.ts` — PNG normalization, alpha checks, cutout trimming

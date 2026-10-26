@@ -134,7 +134,7 @@ async function handleProductFile(file: File): Promise<void> {
   try {
     const detected = await detectProductFile(file)
     if (detected.kind === 'image') {
-      dropzone.showStatus('Cutting out the product…')
+      dropzone.showStatus('Removing the background…')
       const cutout = await preparePhotoCutout(file, api.cutout)
       product = {
         kind: 'photo',

@@ -1,3 +1,5 @@
+import { chromaKeyCutout } from './chroma-key.ts'
+
 const MAX_SIDE = 1536
 
 function toCanvas(bitmap: ImageBitmap): HTMLCanvasElement {
@@ -78,7 +80,13 @@ export async function preparePhotoCutout(
   remoteCutout: (png: Blob) => Promise<Blob>,
 ): Promise<PhotoCutout> {
   const png = await normalizeImageToPng(file)
-  const cutout = (await pngHasRealAlpha(png)) ? await trimAlphaPng(png) : await remoteCutout(png)
+  let cutout: Blob
+  if (await pngHasRealAlpha(png)) {
+    cutout = await trimAlphaPng(png)
+  } else {
+    const chroma = await chromaKeyCutout(png)
+    cutout = chroma ? await trimAlphaPng(chroma) : await remoteCutout(png)
+  }
   const bitmap = await createImageBitmap(cutout)
   const result: PhotoCutout = {
     png: cutout,

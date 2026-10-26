@@ -24,7 +24,6 @@ export interface StudioScene {
   setTable(table: TableConfig): void
   setProduct(product: ProductData | null): void
   setPhotoHeight(fraction: number): void
-  frameProduct(): void
   captureSize(): { width: number; height: number }
   captureView(): string
   captureDepth(): string
@@ -315,22 +314,6 @@ export function createStudioScene(root: HTMLElement): StudioScene {
     setPhotoHeight(fraction) {
       photoHeight = fraction
       placeProduct()
-    },
-
-    frameProduct() {
-      const box = new THREE.Box3().setFromObject(productRoot)
-      if (box.isEmpty()) return
-      const center = box.getCenter(new THREE.Vector3())
-      const size = box.getSize(new THREE.Vector3())
-      const halfAngle = THREE.MathUtils.degToRad(FOV / 2)
-      const distance =
-        Math.max(size.y / 2 / Math.tan(halfAngle), size.x / 2 / Math.tan(halfAngle)) * 1.6
-      const direction = new THREE.Vector3(0.35, 0.35, 1).normalize()
-      camera.position.copy(center).addScaledVector(direction, distance)
-      clampPoint(camera.position)
-      controls.target.copy(center)
-      clampPoint(controls.target)
-      controls.update()
     },
 
     captureSize() {

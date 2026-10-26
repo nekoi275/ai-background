@@ -155,7 +155,6 @@ async function handleProductFile(file: File): Promise<void> {
       }
     }
     scene.setProduct(product.data)
-    scene.frameProduct()
     dropzone.setFilled(product.name, product.previewUrl)
     if (previous?.previewUrl) URL.revokeObjectURL(previous.previewUrl)
     showProductCard()
@@ -249,7 +248,6 @@ for (const input of Object.values(tableInputs)) {
   input.addEventListener('input', applyScene)
 }
 photoHeightInput.addEventListener('input', applyScene)
-$('frame').addEventListener('click', () => scene.frameProduct())
 
 function formatSize(size: { x: number; y: number; z: number }): string {
   return `${size.x.toFixed(2)} × ${size.z.toFixed(2)} × ${size.y.toFixed(2)} m (W × D × H)`

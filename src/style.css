@@ -425,10 +425,6 @@ body {
   color: var(--text-muted);
 }
 
-#frame {
-  margin-top: 8px;
-}
-
 .field {
   display: block;
   margin-bottom: 14px;

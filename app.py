@@ -2,7 +2,7 @@
 import modal
 
 from backend import Model as ModelCls, RecoveryStorage, create_app
-from backend.config import IMAGE_ENV
+from backend.config import IMAGE_ENV, get_gpu_config
 
 MIN = 60
 
@@ -45,7 +45,7 @@ storage = RecoveryStorage(kv)
 
 Model = app.cls(
     image=gpu_image,
-    gpu="L4",
+    gpu=get_gpu_config(),
     timeout=20 * MIN,
     scaledown_window=60,
     volumes={"/cache": hf_vol},

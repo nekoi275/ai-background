@@ -54,7 +54,9 @@ npm run dev
 
 Generation runs in `app.py` — a FastAPI layer deployed on Modal
 (SDXL + ControlNet-Depth, Depth-Anything V2 for DoF, rembg for cutout;
-L4 GPU for scene generation, CPU for cutout/compose).
+GPU fallback list `L4` -> `A10` -> `L40S` -> `A100` for scene generation,
+CPU for cutout/compose). The GPU list can be overridden via `MODAL_GPU`
+(e.g., `MODAL_GPU=L4,A10 modal deploy app.py`).
 
 Every endpoint (except `/api/health`) requires the bearer token from the
 Modal secret **`ai-background`** (`API_TOKEN` inside it):

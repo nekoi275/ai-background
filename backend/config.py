@@ -16,6 +16,19 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+DEFAULT_GPUS: list[str] = ["L4", "A10", "L40S", "A100"]
+
+
+def get_gpu_config() -> list[str] | str:
+    raw = os.environ.get("MODAL_GPU")
+    if not raw:
+        return DEFAULT_GPUS
+    gpus = [g.strip() for g in raw.split(",") if g.strip()]
+    if not gpus:
+        return DEFAULT_GPUS
+    return gpus if len(gpus) > 1 else gpus[0]
+
+
 @dataclass(frozen=True)
 class GenerationSettings:
     bg_model: str = os.environ.get("GEN_BG_MODEL", "SG161222/RealVisXL_V4.0")
@@ -48,7 +61,7 @@ GEOMETRY_FLOOR_GLOSSY = "subtly glossy floor"
 GEOMETRY_FLOOR_MATTE = "matte non-reflective floor"
 
 GEOMETRY_BASE = (
-    "eye-level wide-angle photograph of the interior shown in the depth image, "
+    "photograph of the interior shown in the depth image, "
     "the room layout, walls and floor follow the depth map exactly, "
     "the center of the frame stays clear as the stage for the shot's main subject, "
     "everything else furnished and decorated in rich detail following the prompt, "

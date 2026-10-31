@@ -14,9 +14,6 @@ class KVStoreProtocol(Protocol):
 
 
 class RecoveryStorage:
-    """Manages chunked storage in a Modal Dict or compatible key-value store,
-    allowing retrieval of large responses and pruning historical seeds."""
-
     def __init__(self, store: Any, keep_seeds: int = KV_KEEP_SEEDS):
         self.store = store
         self.keep_seeds = keep_seeds
@@ -51,9 +48,6 @@ class RecoveryStorage:
             self.store.pop(f"{key}#n", None)
 
     def track_seed(self, seed: int) -> None:
-        """Keep only the newest `keep_seeds` stashed results (the recovery Dict
-        has no TTL; without this it grows forever). Best-effort: pruning must
-        never fail a generation."""
         try:
             recent = self.store.get("recent")
             if not isinstance(recent, list):

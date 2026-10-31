@@ -31,6 +31,9 @@ class Model:
         )
         from transformers import pipeline as hf_pipeline  # type: ignore[import-not-found]
 
+        gpu_name = self.torch.cuda.get_device_name(0)
+        print(f"[Model] Initialized on GPU: {gpu_name}")
+
         self.cn = StableDiffusionXLControlNetPipeline(
             **self.base.components, controlnet=self.controlnet
         ).to("cuda")

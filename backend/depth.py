@@ -7,32 +7,27 @@ from .config import MAX_SIDE, MIN_SIDE
 def snap_resolution(
     value: float, min_side: int = MIN_SIDE, max_side: int = MAX_SIDE
 ) -> int:
-    """Snap a dimension to the nearest multiple of 64 within [min_side, max_side]."""
     snapped = (int(round(value)) // 64) * 64
     return max(min_side, min(max_side, snapped))
 
 
 def png_bytes(img: Image.Image) -> bytes:
-    """Serialize PIL image to PNG bytes."""
     buf = io.BytesIO()
     img.save(buf, "PNG")
     return buf.getvalue()
 
 
 def jpeg_bytes(img: Image.Image, quality: int = 95) -> bytes:
-    """Serialize PIL image to JPEG bytes with specified quality."""
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=quality)
     return buf.getvalue()
 
 
 def load_image(raw: bytes, mode: str) -> Image.Image:
-    """Load and convert an image from bytes."""
     return Image.open(io.BytesIO(raw)).convert(mode)
 
 
 def downscaled(img: Image.Image, max_side: int = 768) -> Image.Image:
-    """Downscale image maintaining aspect ratio so neither side exceeds max_side."""
     w, h = img.size
     if max(w, h) <= max_side:
         return img
@@ -48,9 +43,6 @@ def downscaled(img: Image.Image, max_side: int = 768) -> Image.Image:
 
 
 def scene_depth_map(depth_pipe, img: Image.Image) -> np.ndarray:
-    """Depth-Anything relative depth (larger = closer) for a scene image,
-    computed on a downscaled copy: relative depth is smooth, bilinear
-    upscale in depth_map_from_png restores full resolution."""
     small = downscaled(img, 640)
     out = depth_pipe(small)
     d = out["predicted_depth"]
@@ -68,9 +60,6 @@ def scene_depth_map(depth_pipe, img: Image.Image) -> np.ndarray:
 
 
 def depth_png_bytes(depth_map: np.ndarray) -> bytes:
-    """Serialize a relative-depth map as a min-max normalized 16-bit PNG.
-    The compose-side DoF math (median anchor, percentile spread) is
-    affine-invariant, so the normalization carries no information loss."""
     lo = float(depth_map.min())
     hi = float(depth_map.max())
     norm = np.clip((depth_map - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
@@ -78,8 +67,6 @@ def depth_png_bytes(depth_map: np.ndarray) -> bytes:
 
 
 def depth_map_from_png(raw: bytes, width: int, height: int) -> np.ndarray:
-    """Decode a 16-bit depth PNG (the scene response's depth_b64) to a float
-    map at compose resolution."""
     arr = np.asarray(Image.open(io.BytesIO(raw)), dtype=np.float32)
     if arr.ndim == 3:
         arr = arr[..., 0]
@@ -90,9 +77,6 @@ def depth_map_from_png(raw: bytes, width: int, height: int) -> np.ndarray:
 
 
 def depth_cond_from_png(raw: bytes, width: int, height: int) -> Image.Image:
-    """Client-rendered empty-room Z-pass -> 8-bit cond (bright = closer).
-    16-bit 'I' PNGs carry distances (far = large) and are inverted; 8-bit
-    input is assumed to already follow the bright-closer convention."""
     img = Image.open(io.BytesIO(raw))
     if img.mode.startswith("I"):
         arr = np.asarray(img, dtype=np.float32)

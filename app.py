@@ -11,10 +11,13 @@ app = modal.App("ai-background")
 gpu_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
-        "torch==2.4.1",
-        "diffusers==0.31.0",
-        "transformers==4.45.2",
-        "accelerate==1.0.1",
+        "torch>=2.6.0",
+        "torchvision",
+        "diffusers>=0.41.0",
+        "transformers>=4.48.0",
+        "accelerate>=1.0.1",
+        "sentencepiece",
+        "protobuf",
         "safetensors",
         "fastapi",
         "python-multipart",
@@ -49,7 +52,7 @@ Model = app.cls(
     timeout=20 * MIN,
     scaledown_window=60,
     volumes={"/cache": hf_vol},
-    memory=16384,
+    memory=32768,
     enable_memory_snapshot=True,
 )(ModelCls)
 

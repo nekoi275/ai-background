@@ -6,8 +6,9 @@ import time
 import traceback
 from typing import Any, Callable, TypeVar
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from PIL import Image
 
@@ -80,6 +81,22 @@ def create_app(
         allow_headers=["*"],
     )
 
+    @fast.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        traceback.print_exc()
+        headers = {"Access-Control-Allow-Origin": "*"}
+        if isinstance(exc, HTTPException):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=headers,
+            )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal server error: {type(exc).__name__}: {exc}"},
+            headers=headers,
+        )
+
     @fast.get("/api/health")
     def health():
         return {"ok": True}
@@ -111,22 +128,33 @@ def create_app(
         """Product photo -> trimmed RGBA cutout PNG."""
         try:
             t0 = time.time()
-            src = Image.open(io.BytesIO(image.file.read()))
+            raw_bytes = image.file.read()
+            src = Image.open(io.BytesIO(raw_bytes))
             rgba = src.convert("RGBA") if "A" in src.getbands() else None
             if rgba is not None:
                 ext = rgba.getchannel("A").getextrema()
                 if isinstance(ext[0], (int, float)) and ext[0] < 250:
-                    cutout_img = rgba
-                else:
-                    cutout_img = cutout_product(src.convert("RGB"))
-            else:
+                    out = alpha_trimmed(rgba)
+                    buf = io.BytesIO()
+                    out.save(buf, "PNG")
+                    print(f"cutout bypass ok seconds={time.time() - t0:.1f}", flush=True)
+                    return Response(content=buf.getvalue(), media_type="image/png")
+            try:
+                model_instance = model_factory()
+                png_out = model_instance.cutout.remote(raw_bytes)
+                print(f"cutout qwen ok seconds={time.time() - t0:.1f}", flush=True)
+                return Response(content=png_out, media_type="image/png")
+            except Exception as model_exc:
+                print(
+                    f"GPU cutout fallback to rembg ({type(model_exc).__name__}: {model_exc})",
+                    flush=True,
+                )
                 cutout_img = cutout_product(src.convert("RGB"))
-
-            out = alpha_trimmed(cutout_img)
-            buf = io.BytesIO()
-            out.save(buf, "PNG")
-            print(f"cutout ok seconds={time.time() - t0:.1f}", flush=True)
-            return Response(content=buf.getvalue(), media_type="image/png")
+                out = alpha_trimmed(cutout_img)
+                buf = io.BytesIO()
+                out.save(buf, "PNG")
+                print(f"cutout rembg ok seconds={time.time() - t0:.1f}", flush=True)
+                return Response(content=buf.getvalue(), media_type="image/png")
         except HTTPException:
             raise
         except Exception as exc:

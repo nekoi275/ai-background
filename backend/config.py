@@ -16,7 +16,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-DEFAULT_GPUS: list[str] = ["L4", "A10", "L40S", "A100"]
+DEFAULT_GPUS: list[str] = ["L40S", "A100", "L4", "A10"]
 
 
 def get_gpu_config() -> list[str] | str:
@@ -31,15 +31,15 @@ def get_gpu_config() -> list[str] | str:
 
 @dataclass(frozen=True)
 class GenerationSettings:
-    bg_model: str = os.environ.get("GEN_BG_MODEL", "SG161222/RealVisXL_V4.0")
+    bg_model: str = os.environ.get("GEN_BG_MODEL", "Qwen/Qwen-Image-2.1-Turbo")
     depth_model: str = os.environ.get(
         "GEN_DEPTH_MODEL", "depth-anything/Depth-Anything-V2-Small-hf"
     )
     cn_model: str = os.environ.get(
         "GEN_CN_MODEL", "diffusers/controlnet-depth-sdxl-1.0"
     )
-    steps: int = _env_int("GEN_STEPS", 32)
-    guidance: float = _env_float("GEN_GUIDANCE", 7.0)
+    steps: int = _env_int("GEN_STEPS", 8)
+    guidance: float = _env_float("GEN_GUIDANCE", 1.0)
     cn_scale: float = _env_float("GEN_CN_SCALE", 0.65)
     cn_end: float = _env_float("GEN_CN_END", 0.75)
     dof_spread: float = _env_float("GEN_DOF_SPREAD", 0.7)

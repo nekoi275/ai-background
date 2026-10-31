@@ -33,7 +33,6 @@
       </header>
 
       <main class="app__main">
-        <!-- Step 1 — product -->
         <section class="step" id="step-1">
           <div class="step__body step__body--narrow">
             <h2 class="step__title">Upload your product</h2>
@@ -86,18 +85,42 @@
 
             <aside class="controls">
               <h3 class="controls__title">Room</h3>
-              <label class="control">
-                <span class="control__head"><span>Width</span><b data-out="room-width">5.0 m</b></span>
-                <input type="range" id="room-width" min="0.5" max="40" step="0.1" value="5" />
-              </label>
-              <label class="control">
-                <span class="control__head"><span>Height</span><b data-out="room-height">3.0 m</b></span>
-                <input type="range" id="room-height" min="0.5" max="20" step="0.1" value="3" />
-              </label>
-              <label class="control">
-                <span class="control__head"><span>Depth</span><b data-out="room-depth">5.0 m</b></span>
-                <input type="range" id="room-depth" min="0.5" max="40" step="0.1" value="5" />
-              </label>
+              <div class="control">
+                <label class="control__head" for="room-width"><span>Width</span><b data-out="room-width">5.0 m</b></label>
+                <div class="control__slider">
+                  <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Width">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                  </button>
+                  <input type="range" id="room-width" min="0.5" max="40" step="0.1" value="5" />
+                  <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Width">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="control">
+                <label class="control__head" for="room-height"><span>Height</span><b data-out="room-height">3.0 m</b></label>
+                <div class="control__slider">
+                  <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Height">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                  </button>
+                  <input type="range" id="room-height" min="0.5" max="20" step="0.1" value="3" />
+                  <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Height">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="control">
+                <label class="control__head" for="room-depth"><span>Depth</span><b data-out="room-depth">5.0 m</b></label>
+                <div class="control__slider">
+                  <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Depth">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                  </button>
+                  <input type="range" id="room-depth" min="0.5" max="40" step="0.1" value="5" />
+                  <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Depth">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </button>
+                </div>
+              </div>
 
               <h3 class="controls__title">Table</h3>
               <label class="control control--toggle">
@@ -112,26 +135,66 @@
                     <option value="cylinder">Cylinder</option>
                   </select>
                 </label>
-                <label class="control">
-                  <span class="control__head"><span>Width</span><b data-out="table-width">0.60 m</b></span>
-                  <input type="range" id="table-width" min="0.05" max="6" step="0.05" value="0.6" />
-                </label>
-                <label class="control">
-                  <span class="control__head"><span>Depth</span><b data-out="table-depth">0.60 m</b></span>
-                  <input type="range" id="table-depth" min="0.05" max="6" step="0.05" value="0.6" />
-                </label>
-                <label class="control">
-                  <span class="control__head"><span>Height</span><b data-out="table-height">0.60 m</b></span>
-                  <input type="range" id="table-height" min="0.05" max="6" step="0.05" value="0.6" />
-                </label>
-                <label class="control">
-                  <span class="control__head"><span>Position X</span><b data-out="table-x">0.00 m</b></span>
-                  <input type="range" id="table-x" min="-10" max="10" step="0.05" value="0" />
-                </label>
-                <label class="control">
-                  <span class="control__head"><span>Position Z</span><b data-out="table-z">0.00 m</b></span>
-                  <input type="range" id="table-z" min="-10" max="10" step="0.05" value="0" />
-                </label>
+                <div class="control">
+                  <label class="control__head" for="table-width"><span>Width</span><b data-out="table-width">0.60 m</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Table Width">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="table-width" min="0.05" max="6" step="0.05" value="0.6" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Table Width">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="control">
+                  <label class="control__head" for="table-depth"><span>Depth</span><b data-out="table-depth">0.60 m</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Table Depth">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="table-depth" min="0.05" max="6" step="0.05" value="0.6" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Table Depth">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="control">
+                  <label class="control__head" for="table-height"><span>Height</span><b data-out="table-height">0.60 m</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Table Height">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="table-height" min="0.05" max="6" step="0.05" value="0.6" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Table Height">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="control">
+                  <label class="control__head" for="table-x"><span>Position X</span><b data-out="table-x">0.00 m</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Table Position X">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="table-x" min="-10" max="10" step="0.05" value="0" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Table Position X">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="control">
+                  <label class="control__head" for="table-z"><span>Position Z</span><b data-out="table-z">0.00 m</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Table Position Z">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="table-z" min="-10" max="10" step="0.05" value="0" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Table Position Z">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <h3 class="controls__title">Surface</h3>
@@ -143,10 +206,18 @@
 
               <h3 class="controls__title">Object</h3>
               <div id="photo-controls" hidden>
-                <label class="control">
-                  <span class="control__head"><span>Height</span><b data-out="photo-height">45%</b></span>
-                  <input type="range" id="photo-height" min="5" max="95" step="1" value="45" />
-                </label>
+                <div class="control">
+                  <label class="control__head" for="photo-height"><span>Height</span><b data-out="photo-height">45%</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Object Height">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="photo-height" min="5" max="95" step="1" value="45" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Object Height">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
                 <p class="controls__hint">Relative to room height</p>
               </div>
               <p class="controls__hint" id="model-info" hidden></p>

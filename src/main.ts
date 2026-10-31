@@ -1,4 +1,4 @@
-import './style.css'
+import './styles/index.css'
 import { api } from './api.ts'
 import { detectProductFile } from './lib/file-type.ts'
 import { preparePhotoCutout, aiPhotoCutout } from './lib/image.ts'

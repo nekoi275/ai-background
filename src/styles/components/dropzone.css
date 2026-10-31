@@ -1,0 +1,72 @@
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 34px 12px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone:hover,
+.dropzone--over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dropzone--over {
+  border-style: solid;
+}
+
+.dropzone__icon {
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.dropzone--over .dropzone__icon {
+  color: var(--accent);
+}
+
+.dropzone__preview {
+  max-height: min(340px, 50vh);
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  background:
+    repeating-conic-gradient(#eceef1 0% 25%, #fff 0% 50%) 0 0 / 20px 20px;
+}
+
+.dropzone--filled {
+  padding: 16px 12px;
+}
+
+.dropzone__text {
+  margin: 0;
+}
+
+.dropzone--filled .dropzone__text {
+  font-size: 12px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.dropzone--busy .dropzone__text {
+  color: var(--accent);
+}
+
+.dropzone__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.dropzone__error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--danger);
+}

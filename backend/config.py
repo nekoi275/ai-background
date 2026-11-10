@@ -17,16 +17,24 @@ def _env_int(name: str, default: int) -> int:
 
 
 DEFAULT_GPUS: list[str] = ["L40S", "A100", "L4", "A10"]
+EDIT_GPUS: list[str] = ["A100-80GB"]
+
+
+def _gpu_list(raw: str | None, default: list[str]) -> list[str] | str:
+    if not raw:
+        return default
+    gpus = [g.strip() for g in raw.split(",") if g.strip()]
+    if not gpus:
+        return default
+    return gpus if len(gpus) > 1 else gpus[0]
 
 
 def get_gpu_config() -> list[str] | str:
-    raw = os.environ.get("MODAL_GPU")
-    if not raw:
-        return DEFAULT_GPUS
-    gpus = [g.strip() for g in raw.split(",") if g.strip()]
-    if not gpus:
-        return DEFAULT_GPUS
-    return gpus if len(gpus) > 1 else gpus[0]
+    return _gpu_list(os.environ.get("MODAL_GPU"), DEFAULT_GPUS)
+
+
+def get_edit_gpu_config() -> list[str] | str:
+    return _gpu_list(os.environ.get("MODAL_EDIT_GPU"), EDIT_GPUS)
 
 
 @dataclass(frozen=True)
@@ -35,13 +43,11 @@ class GenerationSettings:
     depth_model: str = os.environ.get(
         "GEN_DEPTH_MODEL", "depth-anything/Depth-Anything-V2-Small-hf"
     )
-    cn_model: str = os.environ.get(
-        "GEN_CN_MODEL", "diffusers/controlnet-depth-sdxl-1.0"
-    )
+    edit_model: str = os.environ.get("GEN_EDIT_MODEL", "Qwen/Qwen-Image-Edit-2511")
+    edit_steps: int = _env_int("GEN_EDIT_STEPS", 40)
+    edit_guidance: float = _env_float("GEN_EDIT_GUIDANCE", 4.0)
     steps: int = _env_int("GEN_STEPS", 8)
     guidance: float = _env_float("GEN_GUIDANCE", 1.0)
-    cn_scale: float = _env_float("GEN_CN_SCALE", 0.65)
-    cn_end: float = _env_float("GEN_CN_END", 0.75)
     dof_spread: float = _env_float("GEN_DOF_SPREAD", 0.7)
     focus_blur_max: float = _env_float("GEN_FOCUS_BLUR_MAX", 2.0)
     reflect_strength: float = _env_float("GEN_REFLECT_STRENGTH", 0.45)
@@ -74,10 +80,34 @@ def geometry_base(glossy: bool) -> str:
         floor=GEOMETRY_FLOOR_GLOSSY if glossy else GEOMETRY_FLOOR_MATTE
     )
 
+EDIT_INSTRUCTION = (
+    "Edit this photograph: a product has been placed into an interior scene "
+    "and must look like it was photographed there. "
+    "Keep the product exactly as it is in the input image, preserve its shape, "
+    "proportions, colors, materials and all painted artwork precisely, "
+    "never redraw, restyle or invent any new detail on the product. "
+    "Relight the product so its illumination and white balance match the scene's "
+    "ambient light, add subtle believable reflections of the surroundings on its "
+    "surfaces, and ground it on the surface it stands on with a realistic contact "
+    "shadow and soft ambient occlusion. Keep the product tack-sharp and the rest "
+    "of the photograph unchanged, photorealistic, {floor}."
+)
+
+
+def edit_instruction(glossy: bool) -> str:
+    return EDIT_INSTRUCTION.format(
+        floor=GEOMETRY_FLOOR_GLOSSY if glossy else GEOMETRY_FLOOR_MATTE
+    )
+
 SCENE_NEG = (
     "people, person, text, watermark, logo, cartoon, painting, illustration, "
     "low quality,"
     "dark, gloomy, dirty floor, garbage, debris"
+)
+
+EDIT_NEG = (
+    "hallucinated details on the product, altered pattern, distorted shape, "
+    "extra elements, text, watermark, low quality"
 )
 
 MIN_SIDE = 512
@@ -91,9 +121,9 @@ IMAGE_ENV = {
     "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
     "GEN_STEPS": str(settings.steps),
     "GEN_GUIDANCE": str(settings.guidance),
-    "GEN_CN_MODEL": settings.cn_model,
-    "GEN_CN_SCALE": str(settings.cn_scale),
-    "GEN_CN_END": str(settings.cn_end),
+    "GEN_EDIT_MODEL": settings.edit_model,
+    "GEN_EDIT_STEPS": str(settings.edit_steps),
+    "GEN_EDIT_GUIDANCE": str(settings.edit_guidance),
     "GEN_DOF_SPREAD": str(settings.dof_spread),
     "GEN_FOCUS_BLUR_MAX": str(settings.focus_blur_max),
     "GEN_REFLECT_STRENGTH": str(settings.reflect_strength),

@@ -1,8 +1,8 @@
 
 import modal
 
-from backend import Model as ModelCls, RecoveryStorage, create_app
-from backend.config import IMAGE_ENV, get_gpu_config
+from backend import Harmonizer as HarmonizerCls, Model as ModelCls, RecoveryStorage, create_app
+from backend.config import IMAGE_ENV, get_edit_gpu_config, get_gpu_config
 
 MIN = 60
 
@@ -11,11 +11,11 @@ app = modal.App("ai-background")
 gpu_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
-        "torch>=2.6.0",
+        "torch==2.15.0",
         "torchvision",
-        "diffusers>=0.41.0",
-        "transformers>=4.48.0",
-        "accelerate>=1.0.1",
+        "diffusers==0.42.1",
+        "transformers==5.22.2",
+        "accelerate==1.15.0",
         "sentencepiece",
         "protobuf",
         "safetensors",
@@ -56,6 +56,15 @@ Model = app.cls(
     enable_memory_snapshot=True,
 )(ModelCls)
 
+Harmonizer = app.cls(
+    image=gpu_image,
+    gpu=get_edit_gpu_config(),
+    timeout=30 * MIN,
+    scaledown_window=60,
+    volumes={"/cache": hf_vol},
+    memory=98304,
+)(HarmonizerCls)
+
 
 @app.function(
     image=api_image,
@@ -67,4 +76,6 @@ Model = app.cls(
 )
 @modal.asgi_app()
 def api():
-    return create_app(storage=storage, model_factory=Model)
+    return create_app(
+        storage=storage, model_factory=Model, harmonizer_factory=Harmonizer
+    )

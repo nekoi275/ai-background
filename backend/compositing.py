@@ -370,7 +370,21 @@ def blend_shadow_pass(
     return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
 
-def compose_generative(
+def apply_grain(
+    img: Image.Image,
+    seed: int,
+    settings: GenerationSettings = default_settings,
+) -> Image.Image:
+    if settings.grain <= 0:
+        return img
+    noise = np.random.default_rng(seed).normal(
+        0.0, settings.grain, (img.height, img.width, 1)
+    ).astype(np.float32)
+    arr = np.asarray(img, dtype=np.float32) + noise
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+
+
+def compose_classical(
     plate_img: Image.Image,
     seed: int,
     width: int,
@@ -379,9 +393,10 @@ def compose_generative(
     dhat: np.ndarray,
     reflection_img: Image.Image | None = None,
     shadow_img: Image.Image | None = None,
+    with_grain: bool = True,
     settings: GenerationSettings = default_settings,
 ) -> Image.Image:
-    """Execute the post-render generative composition pipeline."""
+    """Pixel-space compositing: DoF, paste, shadows, harmonization, grain."""
     if settings.bg_defocus > 0:
         scene_img = scene_img.filter(
             ImageFilter.GaussianBlur(settings.bg_defocus)
@@ -441,11 +456,7 @@ def compose_generative(
     paste_mask = final_plate.split()[3]
     out.paste(final_plate, (0, 0), paste_mask)
 
-    if settings.grain > 0:
-        noise = np.random.default_rng(seed).normal(
-            0.0, settings.grain, (out.height, out.width, 1)
-        ).astype(np.float32)
-        arr = np.asarray(out, dtype=np.float32) + noise
-        out = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+    if with_grain:
+        out = apply_grain(out, seed, settings=settings)
 
     return out

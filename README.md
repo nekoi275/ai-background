@@ -24,16 +24,21 @@ receives.
 3. **Prompt.** Describe the background (plus a negative prompt). The
    frontend renders a depth pass of room + table + product (bright =
    closer, range adapted to the room) and posts it with the prompt to
-   `POST /api/scene`: SDXL + ControlNet-Depth paints the interior locked
-   to that geometry — the backend only appends a geometry-anchoring base
-   (`geometry_base` in `backend/config.py`), whose floor phrase follows
-   the glossy toggle.
+   `POST /api/scene`: Qwen-Image-2.1-Turbo paints the interior locked to
+   that depth conditioning — the backend only appends a geometry-anchoring
+   base (`geometry_base` in `backend/config.py`), whose floor phrase
+   follows the glossy toggle.
 4. **Result.** `POST /api/compose` receives the client-rendered product
    plate — the product alone on a transparent background, native
-   proportions, framed by the user's camera — pasted 1:1, grounded with a
-   contact shadow, blended with depth-of-field + unified grain, plus a
-   floor reflection when the glossy toggle is on.
-   Download or generate a new variation (new seed).
+   proportions, framed by the user's camera — and runs two stages.
+   First a pixel-space composite: the plate pasted 1:1, grounded with a
+   contact shadow, blended with depth-of-field, plus a floor reflection
+   when the glossy toggle is on. Then a generative harmonization pass
+   (Qwen-Image-Edit-2511) relights the product to the scene's ambient
+   light, adds believable reflections and a realistic contact shadow,
+   under a fixed instruction that forbids altering the product itself.
+   The pass is spawned and polled via `/api/result/{seed}`; failures fail
+   loudly. Download or generate a new variation (new seed).
 
 Uploads are normalized to PNG in a canvas (EXIF orientation applied,
 transparency preserved, capped at 1536 px).
@@ -53,9 +58,23 @@ npm run dev
 ## Backend
 
 Generation runs in `app.py` — a FastAPI layer deployed on Modal
-(Qwen-Image-2.1-Turbo for fast 8-step scene generation and native RGBA cutout,
-Depth-Anything V2 for DoF; GPU fallback list `L40S` -> `A100` -> `L4` -> `A10`).
-The GPU list can be overridden via `MODAL_GPU` (e.g., `MODAL_GPU=L40S,A100 modal deploy app.py`).
+(Qwen-Image-2.1-Turbo for fast 8-step depth-conditioned scene generation and
+native RGBA cutout, Depth-Anything V2 for DoF, and a separate `Harmonizer`
+container with Qwen-Image-Edit-2511 for the compose-time relight). The scene
+GPU chain is `L40S` -> `A100` -> `L4` -> `A10` (`MODAL_GPU` overrides); the
+Harmonizer defaults to `A100-80GB` first — resident weights make a
+full-quality pass ~2 min GPU, cheaper per run than streamed inference on
+smaller cards (`MODAL_EDIT_GPU` overrides).
+
+Compose is two-phase: `POST /api/compose` runs the pixel-space composite and
+spawns the harmonize job, returning `{seed, queued}` immediately; `GET
+/api/result/{seed}` polls until the JPEG is ready or a stored error
+surfaces as a 500. Harmonization always runs one full-quality recipe
+(env-tunable: `GEN_EDIT_MODEL`, `GEN_EDIT_STEPS` = 40, `GEN_EDIT_GUIDANCE`
+= 4.0 with a fixed negative prompt) and the same deterministic instruction
+(`EDIT_INSTRUCTION` in `backend/config.py`) — user prompts are never
+forwarded to it. There are no fallbacks: if harmonization fails, the
+request fails loudly with the error.
 
 Every endpoint (except `/api/health`) requires the bearer token from the
 Modal secret **`ai-background`** (`API_TOKEN` inside it):
@@ -132,7 +151,9 @@ curl -X POST "$API/api/scene" -H "Authorization: Bearer $TOKEN" \
 curl -X POST "$API/api/compose" -H "Authorization: Bearer $TOKEN" \
   -F "plate=@plate.png" -F "scene=@scene.jpg" \
   -F "depth=@depth16.png" -F 'params={"seed":123}'
-# → {"image_b64": …}
+# → {"seed":123,"queued":true} — then poll until ready:
+curl "$API/api/result/123" -H "Authorization: Bearer $TOKEN"
+# → {"image_b64": …} (404 while running, 500 with the error on failure)
 
 # photo → trimmed RGBA cutout PNG
 curl -X POST "$API/api/cutout" -H "Authorization: Bearer $TOKEN" \

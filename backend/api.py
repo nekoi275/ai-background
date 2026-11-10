@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from PIL import Image
 
-from .config import DEFAULT_SIDE, SCENE_NEG, geometry_base, settings
+from .config import DEFAULT_SIDE, SCENE_NEG, edit_instruction, geometry_base, settings
 from .cutout import alpha_trimmed, cutout_product
 from .depth import (
     depth_cond_from_png,
@@ -22,8 +22,7 @@ from .depth import (
     png_bytes,
     snap_resolution,
 )
-from .compositing import compose_generative
-from .models import Model
+from .compositing import compose_classical
 from .storage import RecoveryStorage
 
 
@@ -70,7 +69,8 @@ def parse_form_json(data: str, model_cls: type[T]) -> T:
 
 def create_app(
     storage: RecoveryStorage,
-    model_factory: Callable[[], Any] = Model,
+    harmonizer_factory: Callable[[], Any],
+    model_factory: Callable[[], Any],
 ) -> FastAPI:
     """FastAPI application factory with dependency-injected storage and model."""
     fast = FastAPI(title="AI Background API")
@@ -103,13 +103,42 @@ def create_app(
 
     @fast.get("/api/result/{seed}")
     def result(seed: int, _auth: None = Depends(verify_token)):
-        """Recovery endpoint for the final composed image."""
+        """Poll endpoint for the spawned harmonize job."""
         try:
             jpeg = storage.get_chunks(f"last_{seed}")
         except KeyError:
+            pass
+        else:
+            b64 = base64.b64encode(jpeg).decode()
+            return {"image_b64": b64, "seed": seed, "recovered": True}
+
+        try:
+            stored = storage.get_chunks(f"compose_error_{seed}")
+        except KeyError:
+            stored = None
+        if stored is not None:
+            raise HTTPException(500, stored.decode())
+
+        try:
+            call_id = storage.get_chunks(f"compose_call_{seed}").decode()
+        except KeyError:
             raise HTTPException(404, "result not ready")
+
+        import modal
+
+        call = modal.FunctionCall.from_id(call_id)
+        try:
+            jpeg = call.get(timeout=2)
+        except (modal.exception.TimeoutError, TimeoutError):
+            raise HTTPException(404, "result not ready")
+        except Exception as exc:
+            detail = f"Harmonize failed: {type(exc).__name__}: {exc}"
+            storage.put_chunks(f"compose_error_{seed}", detail.encode())
+            raise HTTPException(500, detail=detail)
+
+        storage.put_chunks(f"last_{seed}", jpeg)
         b64 = base64.b64encode(jpeg).decode()
-        return {"image_b64": b64, "seed": seed, "recovered": True}
+        return {"image_b64": b64, "seed": seed, "recovered": False}
 
     @fast.get("/api/scene-result/{seed}")
     def scene_result(seed: int, _auth: None = Depends(verify_token)):
@@ -298,7 +327,7 @@ def create_app(
                             (width, height), Image.Resampling.LANCZOS
                         )
 
-            out = compose_generative(
+            composited = compose_classical(
                 plate_img,
                 seed,
                 width,
@@ -307,21 +336,27 @@ def create_app(
                 dhat=dhat,
                 reflection_img=reflection_img,
                 shadow_img=shadow_img,
+                with_grain=False,
             )
+            buf = io.BytesIO()
+            composited.save(buf, "PNG")
+
+            harmonizer = harmonizer_factory()
+            call = harmonizer.harmonize.spawn(
+                image_png=buf.getvalue(),
+                glossy=p.glossy,
+                width=width,
+                height=height,
+                seed=seed,
+            )
+            storage.put_chunks(f"compose_call_{seed}", call.object_id.encode())
+            storage.track_seed(seed)
             print(
-                f"generative pipeline ok seed={seed} "
-                f"seconds={time.time() - t0g:.1f}",
+                f"compose queued seed={seed} "
+                f"classical_seconds={time.time() - t0g:.1f}",
                 flush=True,
             )
-            jpeg = jpeg_bytes(out)
-            storage.put_chunks(f"last_{seed}", jpeg)
-            storage.track_seed(seed)
-            b64 = base64.b64encode(jpeg).decode()
-            return {
-                "image_b64": b64,
-                "seed": seed,
-                "seconds": round(time.time() - t0g, 1),
-            }
+            return {"seed": seed, "queued": True}
         except HTTPException:
             raise
         except Exception as exc:

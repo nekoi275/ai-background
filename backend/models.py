@@ -1,8 +1,10 @@
+import gc
 import io
 import modal
 from PIL import Image
-from .config import SCENE_NEG, settings
-from .depth import depth_png_bytes, scene_depth_map
+from .compositing import apply_grain
+from .config import EDIT_NEG, edit_instruction, settings
+from .depth import depth_png_bytes, jpeg_bytes, scene_depth_map
 
 
 class Model:
@@ -122,3 +124,107 @@ class Model:
         buf = io.BytesIO()
         trimmed.save(buf, "PNG")
         return buf.getvalue()
+
+
+class Harmonizer:
+    def _build_pipe(self, edit_cls):
+        return edit_cls.from_pretrained(
+            settings.edit_model,
+            torch_dtype=self.torch.bfloat16,
+        )
+
+    @modal.enter()
+    def load(self):
+        import torch  # type: ignore[import-not-found]
+
+        if not hasattr(torch, "accelerator"):
+            class _DummyAccelerator:
+                @staticmethod
+                def is_available():
+                    return torch.cuda.is_available()
+
+            torch.accelerator = _DummyAccelerator()  # type: ignore[attr-defined]
+
+        from diffusers import QwenImageEditPlusPipeline  # type: ignore[import-not-found]
+
+        self.torch = torch
+        total_vram_gb = (
+            torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        )
+        gpu_name = torch.cuda.get_device_name(0)
+
+        strategies = []
+        if total_vram_gb >= 60:
+            strategies.append(("full-gpu resident", lambda p: p.to("cuda")))
+
+        def group_leaf(pipe):
+            pipe.enable_group_offload(
+                onload_device=torch.device("cuda"),
+                offload_device=torch.device("cpu"),
+                offload_type="leaf_level",
+            )
+
+        strategies.append(("group-leaf streaming", group_leaf))
+        strategies.append(
+            ("model-cpu-offload", lambda p: p.enable_model_cpu_offload())
+        )
+
+        failures = []
+        pipe = None
+        mode = ""
+        for name, strategy in strategies:
+            pipe = self._build_pipe(QwenImageEditPlusPipeline)
+            try:
+                strategy(pipe)
+                mode = name
+                break
+            except Exception as e:
+                failures.append(f"{name}: {type(e).__name__}: {e}")
+                del pipe
+                pipe = None
+                gc.collect()
+                torch.cuda.empty_cache()
+        if pipe is None:
+            raise RuntimeError(
+                f"all Harmonizer memory strategies failed: {'; '.join(failures)}"
+            )
+
+        self.pipe = pipe
+        print(
+            f"[Harmonizer] ready on {gpu_name} ({total_vram_gb:.1f} GB VRAM), "
+            f"memory strategy: {mode}, steps={settings.edit_steps}, "
+            f"cfg={settings.edit_guidance}"
+            + (f" | failures: {'; '.join(failures)}" if failures else ""),
+            flush=True,
+        )
+
+    @modal.method()
+    def harmonize(
+        self,
+        image_png: bytes,
+        glossy: bool,
+        width: int,
+        height: int,
+        seed: int,
+    ) -> bytes:
+        image = Image.open(io.BytesIO(image_png)).convert("RGB")
+        run_w = (width // 16) * 16
+        run_h = (height // 16) * 16
+        if image.size != (run_w, run_h):
+            image = image.resize((run_w, run_h), Image.Resampling.LANCZOS)
+
+        g = self.torch.Generator("cuda").manual_seed(seed)
+        result = self.pipe(
+            image=image,
+            prompt=edit_instruction(glossy),
+            negative_prompt=EDIT_NEG,
+            true_cfg_scale=settings.edit_guidance,
+            num_inference_steps=settings.edit_steps,
+            width=run_w,
+            height=run_h,
+            generator=g,
+        ).images[0]
+
+        if result.size != (width, height):
+            result = result.resize((width, height), Image.Resampling.LANCZOS)
+        return jpeg_bytes(apply_grain(result, seed))

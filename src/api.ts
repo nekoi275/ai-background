@@ -19,7 +19,7 @@ export interface SceneResult {
 export interface ComposeResult {
   image_b64: string
   seed: number
-  seconds: number
+  seconds?: number
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -40,6 +40,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const PROXY_LIMIT_MS = 140_000
 const POLL_INTERVAL_MS = 4_000
 const POLL_ATTEMPTS = 90
+const COMPOSE_POLL_ATTEMPTS = 300
 
 async function withRecovery<T>(path: string, body: FormData, recoveryPath: string): Promise<T> {
   const controller = new AbortController()
@@ -48,7 +49,7 @@ async function withRecovery<T>(path: string, body: FormData, recoveryPath: strin
     return await request<T>(path, { method: 'POST', body, signal: controller.signal })
   } catch (error) {
     if (!wasSevered(error)) throw error
-    return pollRecovery<T>(recoveryPath)
+    return pollRecovery<T>(recoveryPath, POLL_ATTEMPTS)
   } finally {
     clearTimeout(timeout)
   }
@@ -60,8 +61,8 @@ function wasSevered(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith('Expected JSON')
 }
 
-async function pollRecovery<T>(path: string): Promise<T> {
-  for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+async function pollRecovery<T>(path: string, attempts: number): Promise<T> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
     try {
       return await request<T>(path)
@@ -111,6 +112,15 @@ export const api = {
     if (reflection) body.set('reflection', reflection, 'reflection.png')
     if (shadow) body.set('shadow', shadow, 'shadow.png')
     body.set('params', JSON.stringify(params))
-    return request('/api/compose', { method: 'POST', body })
+    return composeFlow(body, `/api/result/${params.seed}`)
   },
+}
+
+async function composeFlow(body: FormData, recoveryPath: string): Promise<ComposeResult> {
+  try {
+    await request<{ seed: number; queued: boolean }>('/api/compose', { method: 'POST', body })
+  } catch (error) {
+    if (!wasSevered(error)) throw error
+  }
+  return pollRecovery<ComposeResult>(recoveryPath, COMPOSE_POLL_ATTEMPTS)
 }

@@ -401,7 +401,7 @@ async function generate(): Promise<void> {
     resultView.showResult({
       imageUrl: `data:image/jpeg;base64,${result.image_b64}`,
       seed: result.seed,
-      seconds: sceneRes.seconds + result.seconds,
+      seconds: sceneRes.seconds + (result.seconds ?? 0),
     })
   } catch (error) {
     resultView.showError(describeError(error))

@@ -86,7 +86,7 @@ class Model:
             "num_inference_steps": settings.steps,
             "generator": g,
         }
-        if settings.guidance > 1.0 and neg:
+        if settings.guidance > 1.0:
             kwargs["true_cfg_scale"] = settings.guidance
             kwargs["negative_prompt"] = neg
 
@@ -145,7 +145,7 @@ class Harmonizer:
 
             torch.accelerator = _DummyAccelerator()  # type: ignore[attr-defined]
 
-        from diffusers import QwenImageEditPlusPipeline  # type: ignore[import-not-found]
+        from diffusers import QwenImageEditInpaintPipeline  # type: ignore[import-not-found]
 
         self.torch = torch
         total_vram_gb = (
@@ -173,7 +173,7 @@ class Harmonizer:
         pipe = None
         mode = ""
         for name, strategy in strategies:
-            pipe = self._build_pipe(QwenImageEditPlusPipeline)
+            pipe = self._build_pipe(QwenImageEditInpaintPipeline)
             try:
                 strategy(pipe)
                 mode = name
@@ -193,7 +193,7 @@ class Harmonizer:
         print(
             f"[Harmonizer] ready on {gpu_name} ({total_vram_gb:.1f} GB VRAM), "
             f"memory strategy: {mode}, steps={settings.edit_steps}, "
-            f"cfg={settings.edit_guidance}"
+            f"cfg={settings.edit_guidance}, strength={settings.edit_strength}"
             + (f" | failures: {'; '.join(failures)}" if failures else ""),
             flush=True,
         )
@@ -202,26 +202,29 @@ class Harmonizer:
     def harmonize(
         self,
         image_png: bytes,
+        mask_png: bytes,
         glossy: bool,
         width: int,
         height: int,
         seed: int,
     ) -> bytes:
         image = Image.open(io.BytesIO(image_png)).convert("RGB")
+        mask = Image.open(io.BytesIO(mask_png)).convert("L")
         run_w = (width // 16) * 16
         run_h = (height // 16) * 16
         if image.size != (run_w, run_h):
             image = image.resize((run_w, run_h), Image.Resampling.LANCZOS)
+            mask = mask.resize((run_w, run_h), Image.Resampling.LANCZOS)
 
         g = self.torch.Generator("cuda").manual_seed(seed)
         result = self.pipe(
             image=image,
+            mask_image=mask,
             prompt=edit_instruction(glossy),
             negative_prompt=EDIT_NEG,
             true_cfg_scale=settings.edit_guidance,
+            strength=settings.edit_strength,
             num_inference_steps=settings.edit_steps,
-            width=run_w,
-            height=run_h,
             generator=g,
         ).images[0]
 

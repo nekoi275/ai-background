@@ -371,10 +371,9 @@ async function generate(): Promise<void> {
     const frame = scene.captureSize()
     const depth = dataUrlToBlob(scene.captureDepth())
     const plate = dataUrlToBlob(scene.capturePlate())
-    const reflection = glossy ? scene.captureReflection() : null
-    const shadow = scene.captureShadow()
 
     resultView.showStatus('Painting the background…')
+    const table = currentTable()
     const sceneRes = await api.scene(
       {
         seed,
@@ -383,6 +382,8 @@ async function generate(): Promise<void> {
         prompt: promptInput.value.trim(),
         negative_prompt: negativePromptInput.value.trim(),
         glossy,
+        table_visible: table.visible,
+        table_shape: table.shape,
       },
       depth,
     )
@@ -393,8 +394,6 @@ async function generate(): Promise<void> {
       base64ToBlob(sceneRes.scene_b64, 'image/jpeg'),
       base64ToBlob(sceneRes.depth_b64, 'image/png'),
       { seed, glossy },
-      reflection ? dataUrlToBlob(reflection) : null,
-      shadow ? dataUrlToBlob(shadow) : null,
     )
 
     resultReached = true

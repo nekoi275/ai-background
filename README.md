@@ -21,23 +21,29 @@ receives.
    either way), and — for photos — an object-height slider. Orbit the
    camera inside the room to set the shot; the viewport is square,
    matching the output frame.
-3. **Prompt.** Describe the background (plus a negative prompt). The
-   frontend renders a depth pass of room + table + product (bright =
-   closer, range adapted to the room) and posts it with the prompt to
-   `POST /api/scene`: Qwen-Image-2.1-Turbo paints the interior locked to
-   that depth conditioning — the backend only appends a geometry-anchoring
-   base (`geometry_base` in `backend/config.py`), whose floor phrase
-   follows the glossy toggle.
+3. **Prompt.** Describe the background (plus a negative prompt — inert at
+   CFG=1, which is the Turbo default; it only activates via
+   `GEN_GUIDANCE > 1`). The frontend renders a depth pass of room + table
+   (bright = closer, range adapted to the room; the product is hidden) and
+   posts it with the prompt plus the table facts (visible, box or
+   cylinder) to `POST /api/scene`: Qwen-Image-2.1-Turbo treats the depth
+   map as a reference image — it conditions softly, it does not enforce
+   geometry — so the backend appends a base (`geometry_base` in
+   `backend/config.py`) that explains the depth map, claims every
+   silhouette in it (including the table block, described as round for
+   cylinders) and leaves the floor phrase to follow the glossy toggle.
 4. **Result.** `POST /api/compose` receives the client-rendered product
    plate — the product alone on a transparent background, native
    proportions, framed by the user's camera — and runs two stages.
-   First a pixel-space composite: the plate pasted 1:1, grounded with a
-   contact shadow, blended with depth-of-field, plus a floor reflection
-   when the glossy toggle is on. Then a generative harmonization pass
-   (Qwen-Image-Edit-2511) relights the product to the scene's ambient
-   light, adds believable reflections and a realistic contact shadow,
-   under a fixed instruction that forbids altering the product itself.
-   The pass is spawned and polled via `/api/result/{seed}`; failures fail
+   First a pixel-space composite: the plate pasted 1:1, blended with
+   depth-of-field. Then a generative harmonization pass on a masked
+   inpaint pipeline (Qwen-Image-Edit-2511, strength 1.0, 24 steps,
+   cfg 4): a mask built from the plate covers the product and the ground
+   zone under it, so the background is frozen by construction while the
+   pass owns all grounding — relight, a contact shadow touching the
+   product's base, and a reflection when the glossy toggle is on — under
+   a fixed instruction that forbids altering the product itself. The
+   pass is spawned and polled via `/api/result/{seed}`; failures fail
    loudly. Download or generate a new variation (new seed).
 
 Uploads are normalized to PNG in a canvas (EXIF orientation applied,

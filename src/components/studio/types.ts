@@ -32,6 +32,4 @@ export interface StudioScene {
   captureView(): string
   captureDepth(): string
   capturePlate(): string
-  captureReflection(): string | null
-  captureShadow(): string | null
 }

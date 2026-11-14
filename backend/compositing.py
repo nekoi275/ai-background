@@ -208,166 +208,42 @@ def apply_ground_bounce(
     return Image.fromarray(np.clip(plate_arr, 0, 255).astype(np.uint8))
 
 
-def contact_shadow(
-    out: Image.Image,
-    plate_img: Image.Image,
-    settings: GenerationSettings = default_settings,
-) -> Image.Image:
-    if settings.shadow_strength <= 0:
-        return out
-
-    alpha_ch = plate_img.split()[3]
-    bbox = alpha_ch.getbbox()
+def build_product_mask(plate_img: Image.Image) -> Image.Image:
+    width, height = plate_img.size
+    alpha = plate_img.split()[3]
+    bbox = alpha.getbbox()
     if bbox is None:
-        return out
+        raise ValueError(
+            "product plate has no opaque pixels: cannot build the harmonize mask"
+        )
 
-    width, height = out.size
-    alpha = np.asarray(alpha_ch, np.float32) / 255.0
-    y_idx, x_idx = np.where(alpha > 0.3)
-    if len(y_idx) == 0:
-        return out
+    x0, y0, x1, y1 = bbox
+    pw = max(1, x1 - x0)
+    ph = max(1, y1 - y0)
 
-    y1 = int(y_idx.max())
+    mask = Image.new("L", (width, height), 0)
+    ring_arr = (np.asarray(alpha) > 8).astype(np.uint8) * 255
+    ring = Image.fromarray(ring_arr, "L").filter(
+        ImageFilter.MaxFilter(max(3, round(width * 0.025) | 1))
+    )
+    mask.paste(ring, (0, 0))
 
-    y_bot = np.zeros(width, np.int32)
-    for c in np.unique(x_idx):
-        y_bot[c] = y_idx[x_idx == c].max()
-
-    clearance = y1 - y_bot
-    contact_cols = (alpha > 0.3).any(axis=0) & (clearance <= 4)
-    if not contact_cols.any():
-        contact_cols = (alpha > 0.3).any(axis=0)
-
-    contact_x = np.where(contact_cols)[0]
-    cx_min, cx_max = int(contact_x.min()), int(contact_x.max())
-    cx_mid = (cx_min + cx_max) // 2
-    contact_w = max(12, cx_max - cx_min)
-
-    rx1 = int(contact_w * 0.70)
-    ry1 = max(4, int(contact_w * 0.20))
-
-    layer1 = Image.new("L", (width, height), 0)
-    draw1 = ImageDraw.Draw(layer1)
-    draw1.ellipse(
-        [cx_mid - rx1, max(0, y1 - ry1 // 2), cx_mid + rx1, min(height, y1 + ry1 * 2)],
+    draw = ImageDraw.Draw(mask)
+    cx = (x0 + x1) / 2
+    top = max(0, y0 - int(ph * 0.35))
+    bottom = min(height, y1 + int(ph * 0.90))
+    draw.polygon(
+        [
+            (cx - pw * 1.3 / 2, top),
+            (cx + pw * 1.3 / 2, top),
+            (cx + pw * 2.4 / 2, bottom),
+            (cx - pw * 2.4 / 2, bottom),
+        ],
         fill=255,
     )
-    layer1 = layer1.filter(ImageFilter.GaussianBlur(max(2.0, ry1 * 0.6)))
-    m1 = (np.asarray(layer1, np.float32) / 255.0) * (settings.shadow_strength * 0.9)
 
-    rx2 = int(contact_w * 1.15)
-    ry2 = max(6, int(contact_w * 0.38))
-
-    layer2 = Image.new("L", (width, height), 0)
-    draw2 = ImageDraw.Draw(layer2)
-    draw2.ellipse(
-        [cx_mid - rx2, max(0, y1 - ry2 // 3), cx_mid + rx2, min(height, y1 + ry2 * 2)],
-        fill=255,
-    )
-    layer2 = layer2.filter(ImageFilter.GaussianBlur(max(4.0, ry2 * 0.7)))
-    m2 = (np.asarray(layer2, np.float32) / 255.0) * (settings.shadow_strength * 0.45)
-
-    total_m = np.clip(m1 + m2, 0.0, 0.70)
-
-    arr = np.asarray(out, np.float32)
-    arr[..., :3] *= 1.0 - total_m[..., None]
-    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
-
-
-def blend_reflection(
-    out: Image.Image,
-    reflection_img: Image.Image | None,
-    plate_img: Image.Image,
-    width: int,
-    height: int,
-    settings: GenerationSettings = default_settings,
-) -> Image.Image:
-    if settings.reflect_strength <= 0:
-        return out
-
-    alpha_plate = plate_img.split()[3]
-    prod_bbox = alpha_plate.getbbox()
-    if prod_bbox is None:
-        return out
-
-    px0, py0, px1, py1 = prod_bbox
-    prod_h = max(1, py1 - py0)
-
-    refl = None
-    if reflection_img is not None:
-        refl_candidate = reflection_img.resize(
-            (width, height), Image.Resampling.LANCZOS
-        )
-        refl_alpha = refl_candidate.split()[3]
-        rbbox = refl_alpha.getbbox()
-        if rbbox is not None:
-            rx0, ry0, rx1, ry1 = rbbox
-            dy = py1 - ry0
-            if dy != 0:
-                snapped = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-                snapped.paste(refl_candidate, (0, dy))
-                refl = snapped
-            else:
-                refl = refl_candidate
-
-    if refl is None:
-        refl_crop_h = min(prod_h, max(12, int(prod_h * 0.50)))
-        plate_crop = plate_img.crop((px0, py1 - refl_crop_h, px1, py1))
-        flipped = plate_crop.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-        refl_h = max(4, int(refl_crop_h * 0.45))
-        flipped = flipped.resize((px1 - px0, refl_h), Image.Resampling.LANCZOS)
-
-        refl = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        refl.paste(flipped, (px0, py1))
-
-    ralpha = refl.split()[3]
-    rbbox = ralpha.getbbox()
-    if rbbox is None:
-        return out
-
-    rx0, ry0, rx1, ry1 = rbbox
-    fade_h = max(1, ry1 - ry0)
-    grad = np.ones((height, width), np.float32)
-    ramp = (
-        np.linspace(1.0, 0.0, fade_h)
-        ** max(1.0, 1.0 / settings.reflect_fade_frac)
-    )
-    grad[ry0:ry1, rx0:rx1] *= ramp[:, None]
-
-    str_refl = min(0.35, settings.reflect_strength * 0.7)
-    a = np.asarray(ralpha, np.float32) * grad * str_refl
-    faded = refl.copy()
-    faded.putalpha(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)))
-    if settings.reflect_blur > 0:
-        faded = faded.filter(ImageFilter.GaussianBlur(settings.reflect_blur))
-
-    out = out.convert("RGBA")
-    out.alpha_composite(faded)
-    return out.convert("RGB")
-
-
-def blend_shadow_pass(
-    out: Image.Image,
-    shadow_img: Image.Image | None,
-    settings: GenerationSettings = default_settings,
-) -> Image.Image:
-    """3D shadow pass: blurred, scaled by shadow_strength and multiplied onto the floor."""
-    if settings.shadow_strength <= 0 or shadow_img is None:
-        return out
-    shadow = shadow_img.resize(out.size, Image.Resampling.LANCZOS)
-    m = (
-        np.asarray(
-            shadow.split()[3].filter(
-                ImageFilter.GaussianBlur(settings.shadow_blur)
-            ),
-            np.float32,
-        )
-        / 255.0
-        * settings.shadow_strength
-    )
-    arr = np.asarray(out, np.float32)
-    arr[..., :3] *= 1.0 - np.clip(m[..., None], 0.0, 0.85)
-    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+    feather = max(1.0, width * 0.004)
+    return mask.filter(ImageFilter.GaussianBlur(feather))
 
 
 def apply_grain(
@@ -391,8 +267,6 @@ def compose_classical(
     height: int,
     scene_img: Image.Image,
     dhat: np.ndarray,
-    reflection_img: Image.Image | None = None,
-    shadow_img: Image.Image | None = None,
     with_grain: bool = True,
     settings: GenerationSettings = default_settings,
 ) -> Image.Image:
@@ -438,15 +312,6 @@ def compose_classical(
 
     clean_plate = sharpen_product(plate_img, settings=settings)
     clean_plate = defringe_plate(clean_plate)
-
-    out = blend_reflection(
-        out, reflection_img, clean_plate, width, height, settings=settings
-    )
-
-    if shadow_img is not None:
-        out = blend_shadow_pass(out, shadow_img, settings=settings)
-    else:
-        out = contact_shadow(out, clean_plate, settings=settings)
 
     clean_plate = harmonize_color(clean_plate, out)
     clean_plate = apply_ground_bounce(clean_plate, out)

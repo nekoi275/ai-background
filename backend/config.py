@@ -44,17 +44,13 @@ class GenerationSettings:
         "GEN_DEPTH_MODEL", "depth-anything/Depth-Anything-V2-Small-hf"
     )
     edit_model: str = os.environ.get("GEN_EDIT_MODEL", "Qwen/Qwen-Image-Edit-2511")
-    edit_steps: int = _env_int("GEN_EDIT_STEPS", 40)
+    edit_steps: int = _env_int("GEN_EDIT_STEPS", 24)
     edit_guidance: float = _env_float("GEN_EDIT_GUIDANCE", 4.0)
+    edit_strength: float = _env_float("GEN_EDIT_STRENGTH", 1.0)
     steps: int = _env_int("GEN_STEPS", 8)
     guidance: float = _env_float("GEN_GUIDANCE", 1.0)
     dof_spread: float = _env_float("GEN_DOF_SPREAD", 0.7)
     focus_blur_max: float = _env_float("GEN_FOCUS_BLUR_MAX", 2.0)
-    reflect_strength: float = _env_float("GEN_REFLECT_STRENGTH", 0.45)
-    reflect_fade_frac: float = _env_float("GEN_REFLECT_FADE_FRAC", 0.3)
-    reflect_blur: float = _env_float("GEN_REFLECT_BLUR", 2.5)
-    shadow_strength: float = _env_float("GEN_SHADOW_STRENGTH", 0.5)
-    shadow_blur: float = _env_float("GEN_SHADOW_BLUR", 6.0)
     bg_defocus: float = _env_float("GEN_BG_DEFOCUS", 0.6)
     product_sharpen: float = _env_float("GEN_PRODUCT_SHARPEN", 0.35)
     grain: float = _env_float("GEN_GRAIN", 1.3)
@@ -67,36 +63,65 @@ GEOMETRY_FLOOR_GLOSSY = "subtly glossy floor"
 GEOMETRY_FLOOR_MATTE = "matte non-reflective floor"
 
 GEOMETRY_BASE = (
-    "photograph of the interior shown in the depth image, "
-    "the room layout, walls and floor follow the depth map exactly, "
-    "the center of the frame stays clear as the stage for the shot's main subject, "
-    "everything else furnished and decorated in rich detail following the prompt, "
+    "photograph of the interior defined by the reference depth map, "
+    "light areas of the depth map are close to the camera and dark areas are far, "
+    "reproduce the walls, the floor and every piece of furniture exactly as the "
+    "depth map shows them, keeping their shape, position and scale, "
+    "{furniture}"
+    "furnish and decorate the room in rich detail following the description, "
     "{floor}, highly detailed, sharp focus, photorealistic"
 )
 
+TABLE_PHRASES = {
+    "box": (
+        "the pale block in the center is the table from the description, "
+        "render it exactly there with its exact silhouette, "
+    ),
+    "cylinder": (
+        "the pale round block in the center is the round table from the "
+        "description, render it exactly there with its round silhouette, "
+    ),
+}
 
-def geometry_base(glossy: bool) -> str:
+NO_TABLE_PHRASE = (
+    "the center of the floor stays clear as the stage for the shot's main subject, "
+)
+
+
+def geometry_base(
+    glossy: bool, table_visible: bool = False, table_shape: str = "box"
+) -> str:
+    furniture = (
+        TABLE_PHRASES.get(table_shape, TABLE_PHRASES["box"])
+        if table_visible
+        else NO_TABLE_PHRASE
+    )
     return GEOMETRY_BASE.format(
-        floor=GEOMETRY_FLOOR_GLOSSY if glossy else GEOMETRY_FLOOR_MATTE
+        furniture=furniture,
+        floor=GEOMETRY_FLOOR_GLOSSY if glossy else GEOMETRY_FLOOR_MATTE,
     )
 
 EDIT_INSTRUCTION = (
-    "Edit this photograph: a product has been placed into an interior scene "
-    "and must look like it was photographed there. "
-    "Keep the product exactly as it is in the input image, preserve its shape, "
-    "proportions, colors, materials and all painted artwork precisely, "
-    "never redraw, restyle or invent any new detail on the product. "
-    "Relight the product so its illumination and white balance match the scene's "
-    "ambient light, add subtle believable reflections of the surroundings on its "
-    "surfaces, and ground it on the surface it stands on with a realistic contact "
-    "shadow and soft ambient occlusion. Keep the product tack-sharp and the rest "
-    "of the photograph unchanged, photorealistic, {floor}."
+    "Edit the photograph inside the masked region, which covers the product "
+    "and the surface under it. "
+    "Relight the product so its illumination matches the scene's ambient "
+    "light, ground it on the surface so it sits there naturally with its "
+    "base touching the surface, and draw {surface}. "
+    "Never alter the product's shape, proportions, colors, materials or "
+    "painted artwork, and keep everything outside the masked region exactly "
+    "as it is. Photorealistic."
 )
+
+EDIT_SURFACE_GLOSSY = (
+    "a softly blurred reflection of the product and a clear contact shadow"
+)
+
+EDIT_SURFACE_MATTE = "only a soft diffuse contact shadow"
 
 
 def edit_instruction(glossy: bool) -> str:
     return EDIT_INSTRUCTION.format(
-        floor=GEOMETRY_FLOOR_GLOSSY if glossy else GEOMETRY_FLOOR_MATTE
+        surface=EDIT_SURFACE_GLOSSY if glossy else EDIT_SURFACE_MATTE
     )
 
 SCENE_NEG = (
@@ -124,13 +149,9 @@ IMAGE_ENV = {
     "GEN_EDIT_MODEL": settings.edit_model,
     "GEN_EDIT_STEPS": str(settings.edit_steps),
     "GEN_EDIT_GUIDANCE": str(settings.edit_guidance),
+    "GEN_EDIT_STRENGTH": str(settings.edit_strength),
     "GEN_DOF_SPREAD": str(settings.dof_spread),
     "GEN_FOCUS_BLUR_MAX": str(settings.focus_blur_max),
-    "GEN_REFLECT_STRENGTH": str(settings.reflect_strength),
-    "GEN_REFLECT_FADE_FRAC": str(settings.reflect_fade_frac),
-    "GEN_REFLECT_BLUR": str(settings.reflect_blur),
-    "GEN_SHADOW_STRENGTH": str(settings.shadow_strength),
-    "GEN_SHADOW_BLUR": str(settings.shadow_blur),
     "GEN_BG_DEFOCUS": str(settings.bg_defocus),
     "GEN_PRODUCT_SHARPEN": str(settings.product_sharpen),
     "GEN_GRAIN": str(settings.grain),

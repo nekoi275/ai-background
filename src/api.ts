@@ -1,3 +1,5 @@
+import type { TableShape } from './components/studio/types.ts'
+
 export interface SceneParams {
   seed: number
   width: number
@@ -5,6 +7,8 @@ export interface SceneParams {
   prompt: string
   negative_prompt: string
   glossy: boolean
+  table_visible: boolean
+  table_shape: TableShape
 }
 
 export interface SceneResult {
@@ -102,15 +106,11 @@ export const api = {
     scene: Blob,
     depth: Blob,
     params: { seed: number; glossy: boolean },
-    reflection: Blob | null = null,
-    shadow: Blob | null = null,
   ): Promise<ComposeResult> {
     const body = new FormData()
     body.set('plate', plate, 'plate.png')
     body.set('scene', scene, 'scene.jpg')
     body.set('depth', depth, 'depth.png')
-    if (reflection) body.set('reflection', reflection, 'reflection.png')
-    if (shadow) body.set('shadow', shadow, 'shadow.png')
     body.set('params', JSON.stringify(params))
     return composeFlow(body, `/api/result/${params.seed}`)
   },

@@ -22,7 +22,7 @@ from .depth import (
     png_bytes,
     snap_resolution,
 )
-from .compositing import compose_classical
+from .compositing import build_product_mask, compose_classical
 from .storage import RecoveryStorage
 
 
@@ -33,6 +33,8 @@ class SceneRequestParams(BaseModel):
     prompt: str = ""
     negative_prompt: str = ""
     glossy: bool = True
+    table_visible: bool = False
+    table_shape: str = "box"
 
 
 class ComposeRequestParams(BaseModel):
@@ -209,11 +211,8 @@ def create_app(
         height = snap_resolution(p.height)
 
         user_prompt = p.prompt.strip()
-        prompt = (
-            f"{user_prompt}, {geometry_base(p.glossy)}"
-            if user_prompt
-            else geometry_base(p.glossy)
-        )
+        geometry = geometry_base(p.glossy, p.table_visible, p.table_shape)
+        prompt = f"{user_prompt}, {geometry}" if user_prompt else geometry
         neg = p.negative_prompt.strip() or SCENE_NEG
         raw_depth = depth.file.read()
         if not raw_depth:
@@ -269,8 +268,6 @@ def create_app(
         plate: UploadFile = File(...),
         scene: UploadFile = File(...),
         depth: UploadFile = File(...),
-        reflection: UploadFile | None = File(None),
-        shadow: UploadFile | None = File(None),
         params: str = Form("{}"),
         _auth: None = Depends(verify_token),
     ):
@@ -307,26 +304,6 @@ def create_app(
                     (width, height), Image.Resampling.LANCZOS
                 )
 
-            reflection_img = None
-            if reflection is not None and p.glossy:
-                raw_refl = reflection.file.read()
-                if raw_refl:
-                    reflection_img = load_image(raw_refl, "RGBA")
-                    if reflection_img.size != (width, height):
-                        reflection_img = reflection_img.resize(
-                            (width, height), Image.Resampling.LANCZOS
-                        )
-
-            shadow_img = None
-            if shadow is not None:
-                raw_shadow = shadow.file.read()
-                if raw_shadow:
-                    shadow_img = load_image(raw_shadow, "RGBA")
-                    if shadow_img.size != (width, height):
-                        shadow_img = shadow_img.resize(
-                            (width, height), Image.Resampling.LANCZOS
-                        )
-
             composited = compose_classical(
                 plate_img,
                 seed,
@@ -334,16 +311,16 @@ def create_app(
                 height,
                 scene_img=scene_img,
                 dhat=dhat,
-                reflection_img=reflection_img,
-                shadow_img=shadow_img,
                 with_grain=False,
             )
             buf = io.BytesIO()
             composited.save(buf, "PNG")
+            mask_png = png_bytes(build_product_mask(plate_img))
 
             harmonizer = harmonizer_factory()
             call = harmonizer.harmonize.spawn(
                 image_png=buf.getvalue(),
+                mask_png=mask_png,
                 glossy=p.glossy,
                 width=width,
                 height=height,

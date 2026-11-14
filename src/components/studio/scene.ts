@@ -11,8 +11,6 @@ import {
   calculateCaptureDims,
   captureDepthPass,
   capturePlatePass,
-  captureReflectionPass,
-  captureShadowPass,
   renderCapture,
   type RenderContext,
 } from './passes.ts'
@@ -60,7 +58,6 @@ export function createStudioScene(root: HTMLElement): StudioScene {
 
   let billboard: THREE.Mesh | null = null
   let photoAspect = 1
-  let hasModelProduct = false
 
 scene.add(
   new THREE.AmbientLight(0xffffff, 2.2),
@@ -73,9 +70,6 @@ fill.position.set(-4, 5, -3)
 scene.add(key, fill)
 
   const depthContext = createDepthMaterial()
-
-  renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
   const pmrem = new THREE.PMREMGenerator(renderer)
   const environmentTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
@@ -141,7 +135,6 @@ scene.add(key, fill)
   }
 
   function disposeProduct(): void {
-    hasModelProduct = false
     for (const child of [...productRoot.children]) {
       child.traverse((node) => {
         const mesh = node as THREE.Mesh
@@ -199,13 +192,10 @@ scene.add(key, fill)
           material.needsUpdate = true
         })
       } else {
-        hasModelProduct = true
         productRoot.add(product.object)
         product.object.traverse((node) => {
           const mesh = node as THREE.Mesh
           if (!mesh.isMesh) return
-          mesh.castShadow = true
-          mesh.receiveShadow = true
           const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
           for (const material of materials) {
             const std = material as THREE.MeshStandardMaterial
@@ -243,14 +233,6 @@ scene.add(key, fill)
 
     capturePlate() {
       return capturePlatePass(renderCtx, table.visible)
-    },
-
-    captureReflection() {
-      return captureReflectionPass(renderCtx, table.visible)
-    },
-
-    captureShadow() {
-      return captureShadowPass(renderCtx, table.visible, hasModelProduct)
     },
   }
 

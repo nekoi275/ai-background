@@ -77,135 +77,70 @@ def defringe_plate(plate_img: Image.Image) -> Image.Image:
     return Image.merge("RGBA", (*clean_rgb_im.split(), clean_alpha))
 
 
-def harmonize_color(
+def contact_shadow(
+    out: Image.Image,
     plate_img: Image.Image,
-    scene_img: Image.Image,
-    blend_strength: float = 0.14,
+    settings: GenerationSettings = default_settings,
 ) -> Image.Image:
-    if blend_strength <= 0:
-        return plate_img
+    if settings.shadow_strength <= 0:
+        return out
 
     alpha_ch = plate_img.split()[3]
     bbox = alpha_ch.getbbox()
     if bbox is None:
-        return plate_img
+        return out
 
-    x0, y0, x1, y1 = bbox
-    width, height = scene_img.size
+    width, height = out.size
     alpha = np.asarray(alpha_ch, np.float32) / 255.0
-    prod_mask = alpha > 0.4
-    if not prod_mask.any():
-        return plate_img
+    y_idx, x_idx = np.where(alpha > 0.3)
+    if len(y_idx) == 0:
+        return out
 
-    plate_rgb = np.asarray(plate_img.convert("RGB"), np.float32)
+    y1 = int(y_idx.max())
 
-    pad = max(20, int((y1 - y0) * 0.15))
-    sx0 = max(0, x0 - pad)
-    sy0 = max(0, y0 - pad)
-    sx1 = min(width, x1 + pad)
-    sy1 = min(height, y1 + pad)
+    y_bot = np.zeros(width, np.int32)
+    for c in np.unique(x_idx):
+        y_bot[c] = y_idx[x_idx == c].max()
 
-    scene_crop = np.asarray(scene_img.convert("RGB"), np.float32)[sy0:sy1, sx0:sx1]
-    if scene_crop.size == 0:
-        return plate_img
+    clearance = y1 - y_bot
+    contact_cols = (alpha > 0.3).any(axis=0) & (clearance <= 4)
+    if not contact_cols.any():
+        contact_cols = (alpha > 0.3).any(axis=0)
 
-    ambient_mean = np.median(scene_crop, axis=(0, 1))
-    product_mean = np.median(plate_rgb[prod_mask], axis=0)
+    contact_x = np.where(contact_cols)[0]
+    cx_min, cx_max = int(contact_x.min()), int(contact_x.max())
+    cx_mid = (cx_min + cx_max) // 2
+    contact_w = max(12, cx_max - cx_min)
 
-    ratio = ambient_mean / np.maximum(product_mean, 1.0)
-    ratio = ratio / max(float(np.mean(ratio)), 1e-4)
+    rx1 = int(contact_w * 0.70)
+    ry1 = max(4, int(contact_w * 0.20))
 
-    tint_scale = 1.0 - blend_strength + blend_strength * ratio
-    harmonized = np.clip(plate_rgb * tint_scale, 0, 255)
-
-    res_rgb = Image.fromarray(harmonized.astype(np.uint8))
-    return Image.merge("RGBA", (*res_rgb.split(), alpha_ch))
-
-
-def apply_light_wrap(
-    plate_img: Image.Image,
-    scene_img: Image.Image,
-    wrap_strength: float = 0.20,
-) -> Image.Image:
-    if wrap_strength <= 0:
-        return plate_img
-
-    alpha_ch = plate_img.split()[3]
-    bbox = alpha_ch.getbbox()
-    if bbox is None:
-        return plate_img
-
-    alpha = np.asarray(alpha_ch, np.float32) / 255.0
-    inner_alpha = (
-        np.asarray(alpha_ch.filter(ImageFilter.MinFilter(3)), np.float32)
-        / 255.0
+    layer1 = Image.new("L", (width, height), 0)
+    draw1 = ImageDraw.Draw(layer1)
+    draw1.ellipse(
+        [cx_mid - rx1, max(0, y1 - ry1 // 2), cx_mid + rx1, min(height, y1 + ry1 * 2)],
+        fill=255,
     )
-    edge_band = np.clip(alpha - inner_alpha, 0.0, 1.0)
-    if not (edge_band > 0.01).any():
-        return plate_img
+    layer1 = layer1.filter(ImageFilter.GaussianBlur(max(2.0, ry1 * 0.6)))
+    m1 = (np.asarray(layer1, np.float32) / 255.0) * (settings.shadow_strength * 0.9)
 
-    bg_blurred = np.asarray(
-        scene_img.filter(ImageFilter.GaussianBlur(3.0)), np.float32
+    rx2 = int(contact_w * 1.15)
+    ry2 = max(6, int(contact_w * 0.38))
+
+    layer2 = Image.new("L", (width, height), 0)
+    draw2 = ImageDraw.Draw(layer2)
+    draw2.ellipse(
+        [cx_mid - rx2, max(0, y1 - ry2 // 3), cx_mid + rx2, min(height, y1 + ry2 * 2)],
+        fill=255,
     )
-    plate_rgb = np.asarray(plate_img.convert("RGB"), np.float32)
+    layer2 = layer2.filter(ImageFilter.GaussianBlur(max(4.0, ry2 * 0.7)))
+    m2 = (np.asarray(layer2, np.float32) / 255.0) * (settings.shadow_strength * 0.45)
 
-    factor = (wrap_strength * edge_band)[..., None]
-    wrapped_rgb = plate_rgb * (1.0 - factor) + bg_blurred * factor
+    total_m = np.clip(m1 + m2, 0.0, 0.70)
 
-    res_rgb = Image.fromarray(np.clip(wrapped_rgb, 0, 255).astype(np.uint8))
-    return Image.merge("RGBA", (*res_rgb.split(), alpha_ch))
-
-
-def apply_ground_bounce(
-    plate_img: Image.Image,
-    scene_img: Image.Image,
-    bounce_strength: float = 0.30,
-) -> Image.Image:
-    if bounce_strength <= 0:
-        return plate_img
-
-    alpha_ch = plate_img.split()[3]
-    bbox = alpha_ch.getbbox()
-    if bbox is None:
-        return plate_img
-
-    x0, y0, x1, y1 = bbox
-    prod_h = max(1, y1 - y0)
-    width, height = scene_img.size
-
-    ground_band_h = max(6, min(40, int(prod_h * 0.12)))
-    g_top = min(height - 1, y1)
-    g_bot = min(height, y1 + ground_band_h)
-    if g_bot <= g_top:
-        return plate_img
-
-    scene_rgb = np.asarray(scene_img.convert("RGB"), np.float32)
-    ground_sample = scene_rgb[g_top:g_bot, max(0, x0) : min(width, x1)]
-    if ground_sample.size == 0:
-        return plate_img
-
-    ground_color = np.median(ground_sample, axis=(0, 1)) / 255.0
-
-    bounce_h = max(4, min(60, int(prod_h * 0.15)))
-    p_top = max(y0, y1 - bounce_h)
-    actual_h = y1 - p_top
-    if actual_h <= 0:
-        return plate_img
-
-    ramp = (np.linspace(0.0, 1.0, actual_h) ** 1.4)[:, None, None]
-
-    plate_arr = np.asarray(plate_img, np.float32).copy()
-    product_slice = plate_arr[p_top:y1, max(0, x0) : min(width, x1), :3]
-
-    tint = np.clip(ground_color * 1.8, 0.05, 1.2)
-    bounced_slice = product_slice * tint
-
-    factor = bounce_strength * ramp
-    plate_arr[p_top:y1, max(0, x0) : min(width, x1), :3] = (
-        product_slice * (1.0 - factor) + bounced_slice * factor
-    )
-
-    return Image.fromarray(np.clip(plate_arr, 0, 255).astype(np.uint8))
+    arr = np.asarray(out, np.float32)
+    arr[..., :3] *= 1.0 - total_m[..., None]
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
 
 def build_product_mask(plate_img: Image.Image) -> Image.Image:
@@ -313,13 +248,9 @@ def compose_classical(
     clean_plate = sharpen_product(plate_img, settings=settings)
     clean_plate = defringe_plate(clean_plate)
 
-    clean_plate = harmonize_color(clean_plate, out)
-    clean_plate = apply_ground_bounce(clean_plate, out)
+    out = contact_shadow(out, clean_plate, settings=settings)
 
-    final_plate = apply_light_wrap(clean_plate, out)
-
-    paste_mask = final_plate.split()[3]
-    out.paste(final_plate, (0, 0), paste_mask)
+    out.paste(clean_plate, (0, 0), clean_plate.split()[3])
 
     if with_grain:
         out = apply_grain(out, seed, settings=settings)

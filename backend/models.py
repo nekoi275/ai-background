@@ -1,7 +1,8 @@
 import gc
 import io
 import modal
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageFilter
 from .compositing import apply_grain
 from .config import EDIT_NEG, edit_instruction, settings
 from .depth import depth_png_bytes, jpeg_bytes, scene_depth_map
@@ -203,6 +204,7 @@ class Harmonizer:
         self,
         image_png: bytes,
         mask_png: bytes,
+        alpha_png: bytes,
         glossy: bool,
         width: int,
         height: int,
@@ -210,11 +212,13 @@ class Harmonizer:
     ) -> bytes:
         image = Image.open(io.BytesIO(image_png)).convert("RGB")
         mask = Image.open(io.BytesIO(mask_png)).convert("L")
+        alpha = Image.open(io.BytesIO(alpha_png)).convert("L")
         run_w = (width // 16) * 16
         run_h = (height // 16) * 16
         if image.size != (run_w, run_h):
             image = image.resize((run_w, run_h), Image.Resampling.LANCZOS)
             mask = mask.resize((run_w, run_h), Image.Resampling.LANCZOS)
+            alpha = alpha.resize((run_w, run_h), Image.Resampling.LANCZOS)
 
         g = self.torch.Generator("cuda").manual_seed(seed)
         result = self.pipe(
@@ -227,6 +231,21 @@ class Harmonizer:
             num_inference_steps=settings.edit_steps,
             generator=g,
         ).images[0]
+
+        comp = image
+        if result.size != comp.size:
+            comp = comp.resize(result.size, Image.Resampling.LANCZOS)
+            alpha = alpha.resize(result.size, Image.Resampling.LANCZOS)
+        keep = (
+            np.asarray(alpha.filter(ImageFilter.GaussianBlur(3.0)), np.float32)
+            / 255.0
+            * 0.55
+        )
+        blended = (
+            np.asarray(comp, np.float32) * keep[..., None]
+            + np.asarray(result, np.float32) * (1.0 - keep[..., None])
+        )
+        result = Image.fromarray(np.clip(blended, 0, 255).astype(np.uint8))
 
         if result.size != (width, height):
             result = result.resize((width, height), Image.Resampling.LANCZOS)

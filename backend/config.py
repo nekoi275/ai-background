@@ -51,6 +51,8 @@ class GenerationSettings:
     guidance: float = _env_float("GEN_GUIDANCE", 1.0)
     dof_spread: float = _env_float("GEN_DOF_SPREAD", 0.7)
     focus_blur_max: float = _env_float("GEN_FOCUS_BLUR_MAX", 2.0)
+    shadow_strength: float = _env_float("GEN_SHADOW_STRENGTH", 0.5)
+    shadow_blur: float = _env_float("GEN_SHADOW_BLUR", 6.0)
     bg_defocus: float = _env_float("GEN_BG_DEFOCUS", 0.6)
     product_sharpen: float = _env_float("GEN_PRODUCT_SHARPEN", 0.35)
     grain: float = _env_float("GEN_GRAIN", 1.3)
@@ -152,6 +154,8 @@ IMAGE_ENV = {
     "GEN_EDIT_STRENGTH": str(settings.edit_strength),
     "GEN_DOF_SPREAD": str(settings.dof_spread),
     "GEN_FOCUS_BLUR_MAX": str(settings.focus_blur_max),
+    "GEN_SHADOW_STRENGTH": str(settings.shadow_strength),
+    "GEN_SHADOW_BLUR": str(settings.shadow_blur),
     "GEN_BG_DEFOCUS": str(settings.bg_defocus),
     "GEN_PRODUCT_SHARPEN": str(settings.product_sharpen),
     "GEN_GRAIN": str(settings.grain),

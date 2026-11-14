@@ -316,11 +316,13 @@ def create_app(
             buf = io.BytesIO()
             composited.save(buf, "PNG")
             mask_png = png_bytes(build_product_mask(plate_img))
+            alpha_png = png_bytes(plate_img.split()[3])
 
             harmonizer = harmonizer_factory()
             call = harmonizer.harmonize.spawn(
                 image_png=buf.getvalue(),
                 mask_png=mask_png,
+                alpha_png=alpha_png,
                 glossy=p.glossy,
                 width=width,
                 height=height,

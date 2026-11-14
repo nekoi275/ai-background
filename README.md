@@ -35,16 +35,18 @@ receives.
 4. **Result.** `POST /api/compose` receives the client-rendered product
    plate — the product alone on a transparent background, native
    proportions, framed by the user's camera — and runs two stages.
-   First a pixel-space composite: the plate pasted 1:1, blended with
-   depth-of-field. Then a generative harmonization pass on a masked
-   inpaint pipeline (Qwen-Image-Edit-2511, strength 1.0, 24 steps,
-   cfg 4): a mask built from the plate covers the product and the ground
-   zone under it, so the background is frozen by construction while the
-   pass owns all grounding — relight, a contact shadow touching the
-   product's base, and a reflection when the glossy toggle is on — under
-   a fixed instruction that forbids altering the product itself. The
-   pass is spawned and polled via `/api/result/{seed}`; failures fail
-   loudly. Download or generate a new variation (new seed).
+   First a pixel-space composite: the plate pasted 1:1 over a procedural
+   contact shadow, blended with depth-of-field. Then a generative
+   harmonization pass on a masked inpaint pipeline (Qwen-Image-Edit-2511,
+   strength 1.0, 24 steps, cfg 4): a mask built from the plate covers the
+   product and the ground zone under it, so the background is frozen by
+   construction while the pass relights the product and adds surface
+   effects (a reflection when the glossy toggle is on); afterwards the
+   product region is blended 55/45 back toward the original plate so the
+   material and colors cannot drift, and the instruction forbids altering
+   the product itself. The pass is spawned and polled via
+   `/api/result/{seed}`; failures fail loudly. Download or generate a new
+   variation (new seed).
 
 Uploads are normalized to PNG in a canvas (EXIF orientation applied,
 transparency preserved, capped at 1536 px).

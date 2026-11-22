@@ -26,7 +26,6 @@ class GenerateParams(BaseModel):
 
 
 def verify_token(authorization: str | None = Header(None)) -> None:
-    """Validate the incoming bearer token against configured API_TOKEN."""
     if not settings.api_token:
         raise HTTPException(
             status_code=503,
@@ -42,7 +41,6 @@ T = TypeVar("T", bound=BaseModel)
 
 
 def parse_form_json(data: str, model_cls: type[T]) -> T:
-    """Parse JSON string from a multipart form field into a Pydantic model."""
     try:
         raw = json.loads(data or "{}")
         return model_cls.model_validate(raw)
@@ -56,7 +54,6 @@ def create_app(
     storage: RecoveryStorage,
     model_factory: Callable[[], Any],
 ) -> FastAPI:
-    """FastAPI application factory with dependency-injected storage and model."""
     fast = FastAPI(title="AI Background API")
     fast.add_middleware(
         CORSMiddleware,
@@ -87,7 +84,6 @@ def create_app(
 
     @fast.get("/api/result/{seed}")
     def result(seed: int, _auth: None = Depends(verify_token)):
-        """Poll endpoint for the spawned generation job."""
         try:
             jpeg = storage.get_chunks(f"last_{seed}")
         except KeyError:
@@ -129,7 +125,6 @@ def create_app(
         image: UploadFile = File(...),
         _auth: None = Depends(verify_token),
     ):
-        """Product photo -> trimmed RGBA cutout PNG."""
         try:
             t0 = time.time()
             raw_bytes = image.file.read()

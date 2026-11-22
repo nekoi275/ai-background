@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 
-export const WALL_COLOR = 0xf2e9e4
-export const CEILING_COLOR = 0xc9ada7
-export const FLOOR_COLOR = 0x9a8c98
-export const TABLE_COLOR = 0x4a4e69
+const WALL_COLOR = 0xf2e9e4
+const CEILING_COLOR = 0xc9ada7
+const FLOOR_COLOR = 0x9a8c98
+const TABLE_COLOR = 0x4a4e69
 
 export interface RoomMaterials {
   materials: THREE.Material[]

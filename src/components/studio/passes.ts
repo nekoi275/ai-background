@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 
-export const CAPTURE_SIZE = 1024
-export const CAPTURE_MIN_SIDE = 512
+const CAPTURE_SIZE = 1024
+const CAPTURE_MIN_SIDE = 512
 
 export function calculateCaptureDims(camera: THREE.PerspectiveCamera): { width: number; height: number } {
   const aspect = Math.min(Math.max(camera.aspect, 0.5), 2)

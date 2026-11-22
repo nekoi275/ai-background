@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { captureIsolated } from './capture.ts'
+import { computeCoverInstances, computePatchClones, WALL_YAW } from './cover-geometry.ts'
 import {
   createRoomMaterials,
   createTableMaterial,
@@ -12,7 +14,6 @@ import {
 import type {
   CoverConfig,
   MountConfig,
-  MountWall,
   Placement,
   RoomConfig,
   StudioScene,
@@ -24,55 +25,11 @@ const FOV = 50
 const REF_SIZE = 768
 const PATCH_GRID = 5
 const PATCH_FILL = 1.02
-const MAX_INSTANCES = 8000
 const DEG = Math.PI / 180
 
 const tableGeometry: Record<TableShape, THREE.BufferGeometry> = {
   box: new THREE.BoxGeometry(1, 1, 1),
   cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 48),
-}
-
-const X_AXIS = new THREE.Vector3(1, 0, 0)
-const Y_AXIS = new THREE.Vector3(0, 1, 0)
-const Z_AXIS = new THREE.Vector3(0, 0, 1)
-
-const wallYaw: Record<MountWall, number> = {
-  back: 0,
-  front: Math.PI,
-  left: Math.PI / 2,
-  right: -Math.PI / 2,
-}
-
-interface CoverInstance {
-  position: THREE.Vector3
-  quat: THREE.Quaternion
-}
-
-function alignQuat(size: THREE.Vector3, kind: 'floor' | 'ceiling' | MountWall, out: THREE.Quaternion): THREE.Quaternion {
-  const min = Math.min(size.x, size.y, size.z)
-  if (kind === 'floor' || kind === 'ceiling') {
-    if (size.y === min) out.identity()
-    else if (size.x === min) out.setFromAxisAngle(Z_AXIS, Math.PI / 2)
-    else out.setFromAxisAngle(X_AXIS, -Math.PI / 2)
-    if (kind === 'ceiling') out.premultiply(new THREE.Quaternion().setFromAxisAngle(X_AXIS, Math.PI))
-    return out
-  }
-  const yaw = new THREE.Quaternion().setFromAxisAngle(Y_AXIS, wallYaw[kind])
-  if (size.z === min) out.copy(yaw)
-  else if (size.x === min) out.setFromAxisAngle(Y_AXIS, Math.PI / 2).premultiply(yaw)
-  else out.setFromAxisAngle(X_AXIS, Math.PI / 2).premultiply(yaw)
-  return out
-}
-
-function rotatedExtents(quat: THREE.Quaternion, size: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
-  const ax = X_AXIS.clone().multiplyScalar(size.x).applyQuaternion(quat)
-  const ay = Y_AXIS.clone().multiplyScalar(size.y).applyQuaternion(quat)
-  const az = Z_AXIS.clone().multiplyScalar(size.z).applyQuaternion(quat)
-  return out.set(
-    Math.abs(ax.x) + Math.abs(ay.x) + Math.abs(az.x),
-    Math.abs(ax.y) + Math.abs(ay.y) + Math.abs(az.y),
-    Math.abs(ax.z) + Math.abs(ay.z) + Math.abs(az.z),
-  )
 }
 
 export function createStudioScene(root: HTMLElement): StudioScene {
@@ -211,7 +168,7 @@ export function createStudioScene(root: HTMLElement): StudioScene {
   }
 
   function placeMounted(): void {
-    productRoot.rotation.set(0, (placement === 'wall' ? wallYaw[mount.wall] : 0) + mount.yaw * DEG, 0)
+    productRoot.rotation.set(0, (placement === 'wall' ? WALL_YAW[mount.wall] : 0) + mount.yaw * DEG, 0)
     productRoot.position.set(0, 0, 0)
     productRoot.updateMatrixWorld(true)
     const box = new THREE.Box3().setFromObject(productRoot)
@@ -304,74 +261,7 @@ export function createStudioScene(root: HTMLElement): StudioScene {
     })
     if (!sources.length) return
 
-    const instances: CoverInstance[] = []
-    const quat = new THREE.Quaternion()
-    const ext = new THREE.Vector3()
-
-    if (cover.floor) {
-      alignQuat(local.size, 'floor', quat)
-      rotatedExtents(quat, local.size, ext)
-      const nx = Math.max(1, Math.ceil(room.width / ext.x))
-      const nz = Math.max(1, Math.ceil(room.depth / ext.z))
-      for (let i = 0; i < nx && instances.length < MAX_INSTANCES; i++) {
-        for (let j = 0; j < nz && instances.length < MAX_INSTANCES; j++) {
-          instances.push({
-            quat: quat.clone(),
-            position: new THREE.Vector3(
-              -room.width / 2 + ext.x / 2 + i * ext.x,
-              ext.y / 2,
-              -room.depth / 2 + ext.z / 2 + j * ext.z,
-            ),
-          })
-        }
-      }
-    }
-
-    if (cover.ceiling) {
-      alignQuat(local.size, 'ceiling', quat)
-      rotatedExtents(quat, local.size, ext)
-      const nx = Math.max(1, Math.ceil(room.width / ext.x))
-      const nz = Math.max(1, Math.ceil(room.depth / ext.z))
-      for (let i = 0; i < nx && instances.length < MAX_INSTANCES; i++) {
-        for (let j = 0; j < nz && instances.length < MAX_INSTANCES; j++) {
-          instances.push({
-            quat: quat.clone(),
-            position: new THREE.Vector3(
-              -room.width / 2 + ext.x / 2 + i * ext.x,
-              room.height - ext.y / 2,
-              -room.depth / 2 + ext.z / 2 + j * ext.z,
-            ),
-          })
-        }
-      }
-    }
-
-    if (cover.walls) {
-      const walls: MountWall[] = ['back', 'front', 'left', 'right']
-      for (const wall of walls) {
-        if (instances.length >= MAX_INSTANCES) break
-        alignQuat(local.size, wall, quat)
-        rotatedExtents(quat, local.size, ext)
-        const horizontal = wall === 'back' || wall === 'front'
-        const span = horizontal ? room.width : room.depth
-        const hExt = horizontal ? ext.x : ext.z
-        const tExt = horizontal ? ext.z : ext.x
-        const nu = Math.max(1, Math.ceil(span / hExt))
-        const nv = Math.max(1, Math.ceil(room.height / ext.y))
-        for (let i = 0; i < nu && instances.length < MAX_INSTANCES; i++) {
-          for (let j = 0; j < nv && instances.length < MAX_INSTANCES; j++) {
-            const u = -span / 2 + hExt / 2 + i * hExt
-            const v = ext.y / 2 + j * ext.y
-            const t = tExt / 2
-            const position = horizontal
-              ? new THREE.Vector3(u, v, wall === 'back' ? -room.depth / 2 + t : room.depth / 2 - t)
-              : new THREE.Vector3(wall === 'left' ? -room.width / 2 + t : room.width / 2 - t, v, u)
-            instances.push({ quat: quat.clone(), position })
-          }
-        }
-      }
-    }
-
+    const instances = computeCoverInstances(room, cover, local.size)
     if (!instances.length) return
 
     const correction = new THREE.Matrix4().makeTranslation(-local.center.x, -local.center.y, -local.center.z)
@@ -396,22 +286,8 @@ export function createStudioScene(root: HTMLElement): StudioScene {
     const local = localProductBox()
     const source = productRoot.children[0]
     if (!local || !source) return
-    const quat = new THREE.Quaternion()
-    alignQuat(local.size, 'back', quat)
-    const ext = rotatedExtents(quat, local.size, new THREE.Vector3())
-    const rotatedCenter = local.center.clone().applyQuaternion(quat)
-    for (let i = 0; i < PATCH_GRID; i++) {
-      for (let j = 0; j < PATCH_GRID; j++) {
-        const clone = source.clone()
-        clone.scale.setScalar(scale)
-        clone.quaternion.copy(quat)
-        clone.position.set(
-          (i - (PATCH_GRID - 1) / 2) * ext.x - rotatedCenter.x,
-          ext.y / 2 + j * ext.y - rotatedCenter.y,
-          -rotatedCenter.z,
-        )
-        patchRoot.add(clone)
-      }
+    for (const clone of computePatchClones(source, local.size, local.center, scale, PATCH_GRID)) {
+      patchRoot.add(clone)
     }
   }
 
@@ -501,21 +377,12 @@ export function createStudioScene(root: HTMLElement): StudioScene {
       refCamera.position.copy(center).addScaledVector(dir, maxDim * 1.4)
       refCamera.lookAt(center)
       const mounted = placement === 'wall' || placement === 'ceiling'
-      const roomVisible = roomMesh.visible
-      const tableVisible = tableMesh.visible
-      const background = scene.background
-      const clearColor = renderer.getClearColor(new THREE.Color())
-      const clearAlpha = renderer.getClearAlpha()
-      if (!mounted) roomMesh.visible = false
-      tableMesh.visible = false
-      scene.background = new THREE.Color(0x808080)
-      renderer.setClearColor(0x808080, 1)
-      const url = renderCapture(renderer, scene, refCamera, canvas, REF_SIZE, REF_SIZE)
-      roomMesh.visible = roomVisible
-      tableMesh.visible = tableVisible
-      scene.background = background
-      renderer.setClearColor(clearColor, clearAlpha)
-      return url
+      return captureIsolated(renderer, scene, canvas, {
+        camera: refCamera,
+        width: REF_SIZE,
+        height: REF_SIZE,
+        hide: mounted ? [tableMesh] : [roomMesh, tableMesh],
+      })
     },
   }
 
@@ -532,26 +399,13 @@ export function createStudioScene(root: HTMLElement): StudioScene {
     const refCamera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 500)
     refCamera.position.copy(center).addScaledVector(dir, minFace * PATCH_FILL)
     refCamera.lookAt(center)
-    const roomVisible = roomMesh.visible
-    const tableVisible = tableMesh.visible
-    const coverVisible = coverRoot.visible
-    const background = scene.background
-    const clearColor = renderer.getClearColor(new THREE.Color())
-    const clearAlpha = renderer.getClearAlpha()
-    roomMesh.visible = false
-    tableMesh.visible = false
-    coverRoot.visible = false
-    patchRoot.visible = true
-    scene.background = new THREE.Color(0x808080)
-    renderer.setClearColor(0x808080, 1)
-    const url = renderCapture(renderer, scene, refCamera, canvas, REF_SIZE, REF_SIZE)
-    roomMesh.visible = roomVisible
-    tableMesh.visible = tableVisible
-    coverRoot.visible = coverVisible
-    patchRoot.visible = false
-    scene.background = background
-    renderer.setClearColor(clearColor, clearAlpha)
-    return url
+    return captureIsolated(renderer, scene, canvas, {
+      camera: refCamera,
+      width: REF_SIZE,
+      height: REF_SIZE,
+      hide: [roomMesh, tableMesh, coverRoot],
+      show: [patchRoot],
+    })
   }
 
   applyRoom()

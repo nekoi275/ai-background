@@ -23,10 +23,11 @@ materials, artwork, branding — while the prompt decides the scene.
    with real shadows and a directed key light, so geometry and lighting
    come from the render while surface materials stay the prompt's job.
 3. **Prompt.** Describe the scene. Photos post the background-free cutout
-   to `POST /api/generate-photo` (square 1024×1024 output); 3D models post
-   the framed render to `POST /api/generate` (frame from the camera). The
-   model draws the product — or the whole framed render — into the scene
-   described by the prompt.
+   to `POST /api/generate-photo` (square 1024×1024 output). 3D models post
+   the framed render plus a close-up product reference to `POST
+   /api/generate`: a single multi-image edit pass turns the render into a
+   photoreal photograph of the described scene while the reference image
+   anchors the product's appearance down to the smallest part.
 4. **Result.** Jobs are spawned and polled via `/api/result/{seed}`;
    failures fail loudly. Download or generate a new variation (new seed).
 
@@ -49,9 +50,10 @@ npm run dev
 
 Generation runs in `app.py` — a FastAPI layer deployed on Modal with a
 single GPU container hosting Qwen-Image-Edit-2511 (memory ladder: full-GPU
-resident on ≥60 GB cards, then group offload, then CPU offload). Both
-`/api/generate` and `/api/generate-photo` spawn the same `image_to_photo`
-method — one deterministic recipe (`GEN_EDIT_MODEL`, `GEN_EDIT_STEPS`,
+resident on ≥60 GB cards, then group offload, then CPU offload). The photo
+flow spawns `image_to_photo` (single image); the 3D flow spawns
+`render_to_photo` (scene render + close-up product reference, both client
+renders). One deterministic recipe (`GEN_EDIT_MODEL`, `GEN_EDIT_STEPS`,
 `GEN_EDIT_GUIDANCE`, fixed negative prompt) with the instruction templates
 `PHOTO_INSTRUCTION` / `RENDER_INSTRUCTION` in `backend/config.py`. There
 are no fallbacks: if generation fails, the request fails loudly.
@@ -120,10 +122,11 @@ Vanilla TypeScript + Vite, room rendering with three.js.
 API=https://<workspace>--ai-background-api.modal.run
 TOKEN=<API_TOKEN from the Modal secret "ai-background">
 
-# 3D model flow: render.png — the framed neutral render from the studio
+# 3D model flow: render.png — the framed neutral render from the studio,
+# product-ref.png — the close-up product shot on neutral gray
 curl -X POST "$API/api/generate" -H "Authorization: Bearer $TOKEN" \
   -F 'params={"seed":123,"width":1024,"height":1024,"prompt":"spacious gallery interior, bright daylight"}' \
-  -F "render=@render.png"
+  -F "render=@render.png" -F "product_ref=@product-ref.png"
 # → {"seed":123,"queued":true} — then poll until ready:
 curl "$API/api/result/123" -H "Authorization: Bearer $TOKEN"
 # → {"image_b64": …} (404 while running, 500 with the error on failure)

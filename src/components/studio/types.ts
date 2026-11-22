@@ -26,4 +26,5 @@ export interface StudioScene {
   setProduct(product: ProductData | null): void
   captureSize(): { width: number; height: number }
   captureView(): string
+  captureProductReference(): string
 }

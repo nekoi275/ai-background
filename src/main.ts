@@ -393,10 +393,11 @@ async function generate(): Promise<void> {
       resultView.showStatus('Rendering the scene…')
       const frame = scene.captureSize()
       const render = dataUrlToBlob(scene.captureView())
+      const productRef = dataUrlToBlob(scene.captureProductReference())
 
       resultView.showStatus('Generating the photo…')
       result = await api.generate(
-        { render },
+        { render, productRef },
         { seed, width: frame.width, height: frame.height, prompt: promptInput.value.trim() },
       )
     }

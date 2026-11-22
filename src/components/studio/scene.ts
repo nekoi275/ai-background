@@ -12,6 +12,7 @@ import {
 import type { RoomConfig, StudioScene, TableConfig, TableShape } from './types.ts'
 
 const FOV = 50
+const REF_SIZE = 768
 
 const tableGeometry: Record<TableShape, THREE.BufferGeometry> = {
   box: new THREE.BoxGeometry(1, 1, 1),
@@ -184,6 +185,33 @@ export function createStudioScene(root: HTMLElement): StudioScene {
     captureView() {
       const dims = calculateCaptureDims(camera)
       return renderCapture(renderer, scene, camera, canvas, dims.width, dims.height)
+    },
+
+    captureProductReference() {
+      const box = new THREE.Box3().setFromObject(productRoot)
+      if (box.isEmpty()) return ''
+      const center = box.getCenter(new THREE.Vector3())
+      const size = box.getSize(new THREE.Vector3())
+      const maxDim = Math.max(size.x, size.y, size.z)
+      const dir = new THREE.Vector3().subVectors(camera.position, controls.target).normalize()
+      const refCamera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 500)
+      refCamera.position.copy(center).addScaledVector(dir, maxDim * 1.4)
+      refCamera.lookAt(center)
+      const roomVisible = roomMesh.visible
+      const tableVisible = tableMesh.visible
+      const background = scene.background
+      const clearColor = renderer.getClearColor(new THREE.Color())
+      const clearAlpha = renderer.getClearAlpha()
+      roomMesh.visible = false
+      tableMesh.visible = false
+      scene.background = new THREE.Color(0x808080)
+      renderer.setClearColor(0x808080, 1)
+      const url = renderCapture(renderer, scene, refCamera, canvas, REF_SIZE, REF_SIZE)
+      roomMesh.visible = roomVisible
+      tableMesh.visible = tableVisible
+      scene.background = background
+      renderer.setClearColor(clearColor, clearAlpha)
+      return url
     },
   }
 

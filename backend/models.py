@@ -109,3 +109,32 @@ class Model:
             out = out.resize((width, height), Image.Resampling.LANCZOS)
         return jpeg_bytes(out)
 
+    @modal.method()
+    def render_to_photo(
+        self,
+        render_png: bytes,
+        ref_png: bytes,
+        prompt: str,
+        seed: int,
+        width: int,
+        height: int,
+    ) -> bytes:
+        render = Image.open(io.BytesIO(render_png)).convert("RGB")
+        ref = Image.open(io.BytesIO(ref_png)).convert("RGB")
+        rw, rh = max(256, (width // 16) * 16), max(256, (height // 16) * 16)
+        render = render.resize((rw, rh), Image.Resampling.LANCZOS)
+        print(f"[gen-3d] seed={seed} render={rw}x{rh} ref={ref.size} prompt={prompt!r}", flush=True)
+        out = self.pipe(
+            image=[render, ref],
+            prompt=prompt,
+            negative_prompt=EDIT_NEG,
+            true_cfg_scale=settings.edit_guidance,
+            num_inference_steps=settings.edit_steps,
+            width=rw,
+            height=rh,
+            generator=self.torch.Generator("cuda").manual_seed(seed),
+        ).images[0]
+        if out.size != (width, height):
+            out = out.resize((width, height), Image.Resampling.LANCZOS)
+        return jpeg_bytes(out)
+

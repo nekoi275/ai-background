@@ -49,12 +49,13 @@ EDIT_NEG = (
 )
 
 RENDER_INSTRUCTION = (
-    "Picture 1 (Image 1) is a 3D layout preview: a plain blockout room with the real product "
-    "standing inside it. "
-    "Transform this layout into a photorealistic, high-end commercial photograph of: {scene}. "
+    "Picture 1 (Image 1) is a 3D preview of a scene: a plain blockout room with a product "
+    "standing inside it. Picture 2 (Image 2) is the same product photographed up close "
+    "on a neutral gray background. "
+    "Transform the preview in Picture 1 into a photorealistic, high-end commercial photograph of: {scene}. "
     "Strictly preserve the camera angle, perspective, framing, and the position of every object. "
-    "Do not change anything on the product: keep its exact shape, proportions, materials, colors, "
-    "artwork, text, and branding. "
+    "The product must look exactly as it does in Picture 2: same shape, proportions, materials, colors, "
+    "and every part and edge identical. "
     "Replace the flat placeholder surfaces with realistic physical surfaces matching the scene: "
     "textured walls, realistic flooring, realistic furniture surfaces under and around the product, "
     "and a realistic ceiling. "

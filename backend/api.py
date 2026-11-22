@@ -189,6 +189,7 @@ def create_app(
     @fast.post("/api/generate")
     def generate(
         render: UploadFile = File(...),
+        product_ref: UploadFile = File(...),
         params: str = Form("{}"),
         _auth: None = Depends(verify_token),
     ):
@@ -196,13 +197,18 @@ def create_app(
         seed = p.seed if p.seed is not None else random.randint(0, 2**31 - 1)
         prompt = render_instruction(p.prompt)
         print(f"[api.generate] seed={seed} prompt={prompt!r} dims={p.width}x{p.height}", flush=True)
-        call = model_factory().image_to_photo.spawn(
-            image_png=render.file.read(),
+        render_bytes = render.file.read()
+        ref_bytes = product_ref.file.read()
+        call = model_factory().render_to_photo.spawn(
+            render_png=render_bytes,
+            ref_png=ref_bytes,
             prompt=prompt,
             seed=seed,
             width=p.width,
             height=p.height,
         )
+        storage.put_chunks(f"render_{seed}", render_bytes)
+        storage.put_chunks(f"ref_{seed}", ref_bytes)
         storage.put_chunks(f"compose_call_{seed}", call.object_id.encode())
         storage.track_seed(seed)
         return {"seed": seed, "queued": True}

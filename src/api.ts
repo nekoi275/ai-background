@@ -63,9 +63,10 @@ export const api = {
     return response.blob()
   },
 
-  generate(i: { render: Blob }, params: GenerateParams): Promise<GenerateResult> {
+  generate(i: { render: Blob; productRef: Blob }, params: GenerateParams): Promise<GenerateResult> {
     const body = new FormData()
     body.set('render', i.render, 'render.png')
+    body.set('product_ref', i.productRef, 'product-ref.png')
     body.set('params', JSON.stringify(params))
     return generateFlow(body, '/api/generate', `/api/result/${params.seed}`)
   },

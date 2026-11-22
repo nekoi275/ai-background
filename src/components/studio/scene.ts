@@ -500,12 +500,13 @@ export function createStudioScene(root: HTMLElement): StudioScene {
       const refCamera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 500)
       refCamera.position.copy(center).addScaledVector(dir, maxDim * 1.4)
       refCamera.lookAt(center)
+      const mounted = placement === 'wall' || placement === 'ceiling'
       const roomVisible = roomMesh.visible
       const tableVisible = tableMesh.visible
       const background = scene.background
       const clearColor = renderer.getClearColor(new THREE.Color())
       const clearAlpha = renderer.getClearAlpha()
-      roomMesh.visible = false
+      if (!mounted) roomMesh.visible = false
       tableMesh.visible = false
       scene.background = new THREE.Color(0x808080)
       renderer.setClearColor(0x808080, 1)

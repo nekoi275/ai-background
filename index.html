@@ -63,6 +63,32 @@
               <button class="product-card__replace" type="button" id="product-replace">Replace</button>
             </div>
 
+            <div class="placement" id="placement-block" hidden>
+              <label class="control">
+                <span class="control__head"><span>Placement</span></span>
+                <select class="control__select" id="product-placement">
+                  <option value="floor">Stands on the floor</option>
+                  <option value="wall">Mounts on a wall</option>
+                  <option value="ceiling">Mounts on the ceiling</option>
+                  <option value="cover">Covers a surface</option>
+                </select>
+              </label>
+              <div class="controls__group" id="photo-surfaces" hidden>
+                <label class="control control--toggle">
+                  <span>Cover the walls</span>
+                  <input type="checkbox" id="photo-surface-walls" checked />
+                </label>
+                <label class="control control--toggle">
+                  <span>Cover the floor</span>
+                  <input type="checkbox" id="photo-surface-floor" />
+                </label>
+                <label class="control control--toggle">
+                  <span>Cover the ceiling</span>
+                  <input type="checkbox" id="photo-surface-ceiling" />
+                </label>
+              </div>
+            </div>
+
             <div class="cutout-tip" id="cutout-tip" hidden>
               <p class="cutout-tip__text">
                 Cutout edges look rough or parts are missing? The automatic
@@ -122,8 +148,8 @@
                 </div>
               </div>
 
-              <h3 class="controls__title">Table</h3>
-              <label class="control control--toggle">
+              <h3 class="controls__title" id="table-title">Table</h3>
+              <label class="control control--toggle" id="table-toggle">
                 <span>Show table</span>
                 <input type="checkbox" id="table-visible" />
               </label>
@@ -197,8 +223,102 @@
                 </div>
               </div>
 
+              <h3 class="controls__title" id="mount-title" hidden>Mount</h3>
+              <div class="controls__group" id="mount-controls" hidden>
+                <label class="control" id="mount-wall-row">
+                  <span class="control__head"><span>Wall</span></span>
+                  <select class="control__select" id="mount-wall">
+                    <option value="back">Back</option>
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                    <option value="front">Front</option>
+                  </select>
+                </label>
+                <div class="control" id="mount-height-row">
+                  <label class="control__head" for="mount-height"><span>Height</span><b data-out="mount-height">1.50 m</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Mount Height">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="mount-height" min="0.05" max="20" step="0.05" value="1.5" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Mount Height">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="control">
+                  <label class="control__head" for="mount-offset"><span>Position</span><b data-out="mount-offset">0.00 m</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Mount Position">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="mount-offset" min="-20" max="20" step="0.05" value="0" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Mount Position">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="control" id="mount-offset-z-row" hidden>
+                  <label class="control__head" for="mount-offset-z"><span>Position Z</span><b data-out="mount-offset-z">0.00 m</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Mount Position Z">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="mount-offset-z" min="-20" max="20" step="0.05" value="0" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Mount Position Z">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="control">
+                  <label class="control__head" for="mount-yaw"><span>Rotate</span><b data-out="mount-yaw">0°</b></label>
+                  <div class="control__slider">
+                    <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Mount Rotation">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <input type="range" id="mount-yaw" min="-180" max="180" step="15" value="0" />
+                    <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Mount Rotation">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <h3 class="controls__title" id="cover-title" hidden>Coverage</h3>
+              <div class="controls__group" id="cover-controls" hidden>
+                <label class="control control--toggle">
+                  <span>Cover the walls</span>
+                  <input type="checkbox" id="cover-walls" checked />
+                </label>
+                <label class="control control--toggle">
+                  <span>Cover the floor</span>
+                  <input type="checkbox" id="cover-floor" />
+                </label>
+                <label class="control control--toggle">
+                  <span>Cover the ceiling</span>
+                  <input type="checkbox" id="cover-ceiling" />
+                </label>
+              </div>
+              <p class="controls__hint" id="cover-hint" hidden>
+                The tile goes exactly on the selected surfaces; framing may shift slightly in the
+                final photo.
+              </p>
+
               <h3 class="controls__title">Object</h3>
               <p class="controls__hint" id="model-info" hidden></p>
+              <div class="control" id="scale-row">
+                <label class="control__head" for="product-scale"><span>Scale</span><b data-out="product-scale">×1.00</b></label>
+                <div class="control__slider">
+                  <button type="button" class="control__arrow control__arrow--prev" data-step-dir="-1" aria-label="Decrease Product Scale">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                  </button>
+                  <input type="range" id="product-scale" min="2" max="500" step="0.5" value="100" />
+                  <button type="button" class="control__arrow control__arrow--next" data-step-dir="1" aria-label="Increase Product Scale">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                  </button>
+                </div>
+                <p class="controls__hint" id="scale-dims"></p>
+              </div>
             </aside>
           </div>
         </section>

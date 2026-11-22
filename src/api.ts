@@ -1,8 +1,12 @@
+export type Placement = 'floor' | 'wall' | 'ceiling' | 'cover'
+
 export interface GenerateParams {
   seed: number
   width: number
   height: number
   prompt: string
+  placement: Placement
+  surfaces: string[]
 }
 
 export interface GenerateResult {

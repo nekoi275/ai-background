@@ -4,7 +4,7 @@ import json
 import random
 import time
 import traceback
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Literal, TypeVar
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,11 +18,17 @@ from .depth import jpeg_bytes, png_bytes
 from .storage import RecoveryStorage
 
 
+Placement = Literal["floor", "wall", "ceiling", "cover"]
+Surface = Literal["walls", "floor", "ceiling"]
+
+
 class GenerateParams(BaseModel):
     seed: int | None = None
     width: int = Field(default=1024, ge=256, le=2048)
     height: int = Field(default=1024, ge=256, le=2048)
     prompt: str = ""
+    placement: Placement = "floor"
+    surfaces: list[Surface] = Field(default_factory=list)
 
 
 def verify_token(authorization: str | None = Header(None)) -> None:
@@ -168,7 +174,7 @@ def create_app(
             raise
         except Exception as exc:
             raise HTTPException(400, f"Unreadable product: {exc}") from exc
-        prompt = photo_instruction(p.prompt)
+        prompt = photo_instruction(p.prompt, p.placement, p.surfaces)
         print(f"[api.generate-photo] seed={seed} prompt={prompt!r} dims={p.width}x{p.height}", flush=True)
         call = model_factory().image_to_photo.spawn(
             image_png=ref_png,
@@ -190,8 +196,8 @@ def create_app(
     ):
         p = parse_form_json(params, GenerateParams)
         seed = p.seed if p.seed is not None else random.randint(0, 2**31 - 1)
-        prompt = render_instruction(p.prompt)
-        print(f"[api.generate] seed={seed} prompt={prompt!r} dims={p.width}x{p.height}", flush=True)
+        prompt = render_instruction(p.prompt, p.placement, p.surfaces)
+        print(f"[api.generate] seed={seed} placement={p.placement} dims={p.width}x{p.height}", flush=True)
         render_bytes = render.file.read()
         ref_bytes = product_ref.file.read()
         call = model_factory().render_to_photo.spawn(

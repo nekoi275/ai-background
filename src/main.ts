@@ -7,7 +7,7 @@ import { dataUrlToBlob } from './lib/encode.ts'
 import { setupDropzone } from './components/dropzone.ts'
 import { loadModelFile } from './components/model-loader.ts'
 import { createStudioScene } from './components/studio/index.ts'
-import type { ProductData, RoomConfig, TableConfig, TableShape } from './components/studio/index.ts'
+import type { CoverConfig, MountConfig, MountWall, Placement, ProductData, RoomConfig, TableConfig, TableShape } from './components/studio/index.ts'
 import { setupResultView } from './components/result-view.ts'
 
 type StepId = 1 | 2 | 3 | 4
@@ -18,6 +18,7 @@ interface LoadedProduct {
   name: string
   details: string
   data: ProductData | null
+  size: { x: number; y: number; z: number } | null
   previewUrl: string | null
   sourcePng: Blob | null
   cutoutPng: Blob | null
@@ -71,6 +72,39 @@ const tableInputs = {
   z: $<HTMLInputElement>('table-z'),
 }
 
+const placementBlock = $('placement-block')
+const placementSelect = $<HTMLSelectElement>('product-placement')
+const photoSurfaces = $('photo-surfaces')
+const photoSurfaceInputs = {
+  walls: $<HTMLInputElement>('photo-surface-walls'),
+  floor: $<HTMLInputElement>('photo-surface-floor'),
+  ceiling: $<HTMLInputElement>('photo-surface-ceiling'),
+}
+const tableTitle = $('table-title')
+const tableToggle = $('table-toggle')
+const mountTitle = $('mount-title')
+const mountControls = $('mount-controls')
+const mountWallRow = $('mount-wall-row')
+const mountHeightRow = $('mount-height-row')
+const mountOffsetZRow = $('mount-offset-z-row')
+const mountWall = $<HTMLSelectElement>('mount-wall')
+const mountInputs = {
+  height: $<HTMLInputElement>('mount-height'),
+  offset: $<HTMLInputElement>('mount-offset'),
+  offsetZ: $<HTMLInputElement>('mount-offset-z'),
+  yaw: $<HTMLInputElement>('mount-yaw'),
+}
+const coverTitle = $('cover-title')
+const coverControls = $('cover-controls')
+const coverHint = $('cover-hint')
+const coverInputs = {
+  walls: $<HTMLInputElement>('cover-walls'),
+  floor: $<HTMLInputElement>('cover-floor'),
+  ceiling: $<HTMLInputElement>('cover-ceiling'),
+}
+const productScale = $<HTMLInputElement>('product-scale')
+const scaleDims = $('scale-dims')
+
 const scene = createStudioScene($('scene'))
 const dropzone = setupDropzone($('dropzone'), (file) => void handleProductFile(file))
 const resultView = setupResultView($('result-root'), () => void generate())
@@ -80,6 +114,11 @@ let step: StepId = 1
 let resultReached = false
 let busy = false
 let generating = false
+let placement: Placement = 'floor'
+let coverCfg: CoverConfig = { walls: true, floor: false, ceiling: false }
+let lastAppliedPlacement: Placement = 'floor'
+let lastCoverCfg: CoverConfig = { walls: true, floor: false, ceiling: false }
+let lastScale = 1
 
 for (const button of stepperButtons) {
   button.addEventListener('click', () => {
@@ -123,10 +162,7 @@ function setStep(next: StepId): void {
     section.hidden = Number(id) !== next
   }
   if (next === 3) {
-    promptLead.textContent =
-      product?.kind === 'photo'
-        ? 'The product is drawn straight into the scene you describe — no 3D placement is involved.'
-        : 'The scene follows your camera exactly; the prompt decides what the space around the product is.'
+    promptLead.textContent = promptLeadText()
     shotFigure.hidden = product?.kind === 'photo'
     if (product?.kind !== 'photo') shotPreview.src = scene.captureView()
   }
@@ -168,6 +204,7 @@ async function handleProductFile(file: File): Promise<void> {
         name: file.name,
         details: `Photo · ${prepared.cutout.width} × ${prepared.cutout.height} px`,
         data: null,
+        size: null,
         previewUrl: prepared.cutout.url,
         sourcePng: prepared.sourcePng,
         cutoutPng: prepared.cutout.png,
@@ -181,6 +218,7 @@ async function handleProductFile(file: File): Promise<void> {
         name: file.name,
         details: `3D model · ${formatSize(model.size)}`,
         data: { kind: 'model', object: model.object },
+        size: { x: model.size.x, y: model.size.y, z: model.size.z },
         previewUrl: null,
         sourcePng: null,
         cutoutPng: null,
@@ -188,9 +226,19 @@ async function handleProductFile(file: File): Promise<void> {
       }
     }
     scene.setProduct(product.data)
+    scene.setScale(1)
     dropzone.setFilled(product.name, product.previewUrl)
     if (previous?.previewUrl) URL.revokeObjectURL(previous.previewUrl)
+    placement = 'floor'
+    placementSelect.value = 'floor'
+    coverCfg = { walls: true, floor: false, ceiling: false }
+    lastAppliedPlacement = 'floor'
+    lastCoverCfg = { walls: true, floor: false, ceiling: false }
+    lastScale = 1
+    productScale.value = '100'
+    syncCoverInputs()
     showProductCard()
+    syncPlacementUI()
     applyScene()
     updateNav()
   } catch (error) {
@@ -278,9 +326,34 @@ function clampTableToRoom(room: RoomConfig, table: TableConfig): TableConfig {
   return table
 }
 
+function currentMount(): MountConfig {
+  return {
+    wall: mountWall.value as MountWall,
+    height: Number(mountInputs.height.value),
+    offset: Number(mountInputs.offset.value),
+    offsetZ: Number(mountInputs.offsetZ.value),
+    yaw: Number(mountInputs.yaw.value),
+  }
+}
+
+function clampMountToRoom(room: RoomConfig, mount: MountConfig): MountConfig {
+  const snap = (value: number, limit: number) => Math.round(Math.min(limit, Math.max(-limit, value)) * 20) / 20
+  mount.height = Math.max(0.05, Math.round(Math.min(mount.height, room.height) * 20) / 20)
+  const horizontal = mount.wall === 'back' || mount.wall === 'front'
+  if (placement === 'wall') {
+    mount.offset = snap(mount.offset, horizontal ? room.width / 2 : room.depth / 2)
+    mount.offsetZ = 0
+  } else {
+    mount.offset = snap(mount.offset, room.width / 2)
+    mount.offsetZ = snap(mount.offsetZ, room.depth / 2)
+  }
+  return mount
+}
+
 function applyScene(): void {
   const room = currentRoom()
   const table = clampTableToRoom(room, currentTable())
+  const mount = clampMountToRoom(room, currentMount())
   syncControlOutputs()
   tableInputs.x.min = String(-room.width / 2)
   tableInputs.x.max = String(room.width / 2)
@@ -291,9 +364,44 @@ function applyScene(): void {
   tableInputs.height.value = String(table.height)
   tableInputs.x.value = String(table.x)
   tableInputs.z.value = String(table.z)
+  const horizontal = mount.wall === 'back' || mount.wall === 'front'
+  mountInputs.height.max = String(room.height)
+  if (placement === 'wall') {
+    const span = horizontal ? room.width : room.depth
+    mountInputs.offset.min = String(-span / 2)
+    mountInputs.offset.max = String(span / 2)
+    mountInputs.offsetZ.min = '0'
+    mountInputs.offsetZ.max = '0'
+  } else {
+    mountInputs.offset.min = String(-room.width / 2)
+    mountInputs.offset.max = String(room.width / 2)
+    mountInputs.offsetZ.min = String(-room.depth / 2)
+    mountInputs.offsetZ.max = String(room.depth / 2)
+  }
+  mountInputs.height.value = String(mount.height)
+  mountInputs.offset.value = String(mount.offset)
+  mountInputs.offsetZ.value = String(mount.offsetZ)
   $('table-controls').classList.toggle('controls__group--disabled', !table.visible)
   scene.setRoom(room)
   scene.setTable(table)
+  scene.setMount(mount)
+  const scale = Number(productScale.value) / 100
+  if (lastScale !== scale) {
+    scene.setScale(scale)
+    lastScale = scale
+  }
+  if (lastAppliedPlacement !== placement) {
+    scene.setPlacement(placement)
+    lastAppliedPlacement = placement
+  }
+  if (
+    lastCoverCfg.walls !== coverCfg.walls ||
+    lastCoverCfg.floor !== coverCfg.floor ||
+    lastCoverCfg.ceiling !== coverCfg.ceiling
+  ) {
+    scene.setCover(coverCfg)
+    lastCoverCfg = { ...coverCfg }
+  }
   updateSliderArrows()
 }
 
@@ -306,6 +414,18 @@ function syncControlOutputs(): void {
   setOut('table-height', `${Number(tableInputs.height.value).toFixed(2)} m`)
   setOut('table-x', `${Number(tableInputs.x.value).toFixed(2)} m`)
   setOut('table-z', `${Number(tableInputs.z.value).toFixed(2)} m`)
+  setOut('mount-height', `${Number(mountInputs.height.value).toFixed(2)} m`)
+  setOut('mount-offset', `${Number(mountInputs.offset.value).toFixed(2)} m`)
+  setOut('mount-offset-z', `${Number(mountInputs.offsetZ.value).toFixed(2)} m`)
+  setOut('mount-yaw', `${Number(mountInputs.yaw.value)}°`)
+  const scale = Number(productScale.value) / 100
+  setOut('product-scale', `×${scale.toFixed(2)}`)
+  if (product?.size) {
+    const s = product.size
+    scaleDims.textContent = formatSize({ x: s.x * scale, y: s.y * scale, z: s.z * scale })
+  } else {
+    scaleDims.textContent = ''
+  }
 }
 
 function stepSlider(input: HTMLInputElement, dir: number, stepDelta = 1): void {
@@ -362,7 +482,83 @@ for (const input of Object.values(roomInputs)) {
 for (const input of Object.values(tableInputs)) {
   input.addEventListener('input', applyScene)
 }
+for (const input of Object.values(mountInputs)) {
+  input.addEventListener('input', applyScene)
+}
+productScale.addEventListener('input', applyScene)
+mountWall.addEventListener('change', () => {
+  applyScene()
+})
+placementSelect.addEventListener('change', () => {
+  placement = placementSelect.value as Placement
+  syncPlacementUI()
+  applyScene()
+})
+for (const input of [...Object.values(photoSurfaceInputs), ...Object.values(coverInputs)]) {
+  input.addEventListener('change', () => {
+    coverCfg = readCoverInputs()
+    syncCoverInputs()
+    applyScene()
+  })
+}
 setupSliderArrows()
+
+function readCoverInputs(): CoverConfig {
+  const source = photoSurfaces.hidden ? coverInputs : photoSurfaceInputs
+  return {
+    walls: source.walls.checked,
+    floor: source.floor.checked,
+    ceiling: source.ceiling.checked,
+  }
+}
+
+function syncCoverInputs(): void {
+  for (const key of ['walls', 'floor', 'ceiling'] as const) {
+    photoSurfaceInputs[key].checked = coverCfg[key]
+    coverInputs[key].checked = coverCfg[key]
+  }
+}
+
+function coverSurfaces(): string[] {
+  return (['walls', 'floor', 'ceiling'] as const).filter((surface) => coverCfg[surface])
+}
+
+function syncPlacementUI(): void {
+  placementBlock.hidden = !product
+  const isPhoto = product?.kind === 'photo'
+  const isModel = product?.kind === 'model'
+  photoSurfaces.hidden = !isPhoto || placement !== 'cover'
+  tableTitle.hidden = !isModel || placement === 'cover'
+  tableToggle.hidden = tableTitle.hidden
+  mountTitle.hidden = !isModel || (placement !== 'wall' && placement !== 'ceiling')
+  mountControls.hidden = mountTitle.hidden
+  mountWallRow.hidden = placement !== 'wall'
+  mountHeightRow.hidden = placement !== 'wall'
+  mountOffsetZRow.hidden = placement !== 'ceiling'
+  coverTitle.hidden = !isModel || placement !== 'cover'
+  coverControls.hidden = coverTitle.hidden
+  coverHint.hidden = coverTitle.hidden
+}
+
+function promptLeadText(): string {
+  const mounted = placement === 'wall' || placement === 'ceiling'
+  if (product?.kind === 'photo') {
+    if (placement === 'cover') {
+      return 'The material covers the surfaces you selected; the prompt decides what the scene builds in front of it.'
+    }
+    if (mounted) {
+      return 'The product is mounted into the scene you describe; the prompt decides the space around it.'
+    }
+    return 'The product is drawn straight into the scene you describe — no 3D placement is involved.'
+  }
+  if (placement === 'cover') {
+    return 'The surfaces covered in your render stay covered; the prompt decides what the scene builds over them.'
+  }
+  if (mounted) {
+    return 'The product stays exactly where you mounted it; the prompt decides the space around it.'
+  }
+  return 'The scene follows your camera exactly; the prompt decides what the space around the product is.'
+}
 
 function formatSize(size: { x: number; y: number; z: number }): string {
   return `${size.x.toFixed(2)} × ${size.z.toFixed(2)} × ${size.y.toFixed(2)} m (W × D × H)`
@@ -387,7 +583,14 @@ async function generate(): Promise<void> {
       resultView.showStatus('Generating the photo…')
       result = await api.generatePhoto(
         { product: product.cutoutPng! },
-        { seed, width: PHOTO_SIZE.width, height: PHOTO_SIZE.height, prompt: promptInput.value.trim() },
+        {
+          seed,
+          width: PHOTO_SIZE.width,
+          height: PHOTO_SIZE.height,
+          prompt: promptInput.value.trim(),
+          placement,
+          surfaces: placement === 'cover' ? coverSurfaces() : [],
+        },
       )
     } else {
       resultView.showStatus('Rendering the scene…')
@@ -398,7 +601,14 @@ async function generate(): Promise<void> {
       resultView.showStatus('Generating the photo…')
       result = await api.generate(
         { render, productRef },
-        { seed, width: frame.width, height: frame.height, prompt: promptInput.value.trim() },
+        {
+          seed,
+          width: frame.width,
+          height: frame.height,
+          prompt: promptInput.value.trim(),
+          placement,
+          surfaces: placement === 'cover' ? coverSurfaces() : [],
+        },
       )
     }
     resultReached = true
@@ -423,5 +633,6 @@ function describeError(error: unknown): string {
 }
 
 showProductCard()
+syncPlacementUI()
 applyScene()
 setStep(1)

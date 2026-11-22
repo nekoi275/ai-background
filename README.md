@@ -11,11 +11,19 @@ flows end in the same single-image edit pass (Qwen-Image-Edit-2511, cfg 4)
 whose instruction preserves the product exactly — shape, proportions,
 materials, artwork, branding — while the prompt decides the scene.
 
+Every product carries a **placement**: `floor` (default — stands on the
+floor or a table), `wall` / `ceiling` (mounted flush, positioned in the
+studio), or `cover` (the product is a surface material — tile, parquet —
+instanced across the selected walls/floor/ceiling; the scene may then
+build over it: cabinets, furniture). The placement picks the instruction
+template on the backend; the blockout render remains the spatial ground
+truth in the 3D flow.
+
 1. **Product.** Drop a photo (JPG/PNG/WebP) or a 3D model (GLB/GLTF/OBJ/FBX).
    Photos without transparency are keyed out client-side (chroma-key); if
    the edges look off, one click re-runs the cutout with AI (`POST
    /api/cutout`, rembg). PNGs with real alpha are trimmed client-side.
-   3D models keep their native size in meters.
+   3D models keep their native size in meters. Pick the placement here.
 2. **Scene** (3D models only). A light box-room with adjustable
    width/height/depth and an optional table pedestal — box or cylinder,
    with independent width/depth/height — that the product stands on when
@@ -55,7 +63,8 @@ flow spawns `image_to_photo` (single image); the 3D flow spawns
 `render_to_photo` (scene render + close-up product reference, both client
 renders). One deterministic recipe (`GEN_EDIT_MODEL`, `GEN_EDIT_STEPS`,
 `GEN_EDIT_GUIDANCE`, fixed negative prompt) with the instruction templates
-`PHOTO_INSTRUCTION` / `RENDER_INSTRUCTION` in `backend/config.py`. There
+`PHOTO_INSTRUCTION` / `RENDER_INSTRUCTION` and their `MOUNTED_*` / `COVER_*`
+variants (selected by the request's `placement`) in `backend/config.py`. There
 are no fallbacks: if generation fails, the request fails loudly.
 
 Every endpoint (except `/api/health`) requires the bearer token from the

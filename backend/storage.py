@@ -38,7 +38,7 @@ class RecoveryStorage:
         return b"".join(chunks)
 
     def forget_seed(self, seed: int) -> None:
-        for prefix in ("scene_", "last_"):
+        for prefix in ("compose_call_", "compose_error_", "last_"):
             key = f"{prefix}{seed}"
             parts = self.store.get(f"{key}#n")
             if parts is None:

@@ -16,8 +16,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-DEFAULT_GPUS: list[str] = ["L40S", "A100", "L4", "A10"]
-EDIT_GPUS: list[str] = ["A100-80GB"]
+DEFAULT_GPUS: list[str] = ["A100-80GB"]
 
 
 def _gpu_list(raw: str | None, default: list[str]) -> list[str] | str:
@@ -33,131 +32,81 @@ def get_gpu_config() -> list[str] | str:
     return _gpu_list(os.environ.get("MODAL_GPU"), DEFAULT_GPUS)
 
 
-def get_edit_gpu_config() -> list[str] | str:
-    return _gpu_list(os.environ.get("MODAL_EDIT_GPU"), EDIT_GPUS)
-
-
 @dataclass(frozen=True)
 class GenerationSettings:
-    bg_model: str = os.environ.get("GEN_BG_MODEL", "Qwen/Qwen-Image-2.1-Turbo")
-    depth_model: str = os.environ.get(
-        "GEN_DEPTH_MODEL", "depth-anything/Depth-Anything-V2-Small-hf"
-    )
     edit_model: str = os.environ.get("GEN_EDIT_MODEL", "Qwen/Qwen-Image-Edit-2511")
-    edit_steps: int = _env_int("GEN_EDIT_STEPS", 24)
+    edit_steps: int = _env_int("GEN_EDIT_STEPS", 30)
     edit_guidance: float = _env_float("GEN_EDIT_GUIDANCE", 4.0)
-    edit_strength: float = _env_float("GEN_EDIT_STRENGTH", 1.0)
-    steps: int = _env_int("GEN_STEPS", 8)
-    guidance: float = _env_float("GEN_GUIDANCE", 1.0)
-    dof_spread: float = _env_float("GEN_DOF_SPREAD", 0.7)
-    focus_blur_max: float = _env_float("GEN_FOCUS_BLUR_MAX", 2.0)
-    shadow_strength: float = _env_float("GEN_SHADOW_STRENGTH", 0.5)
-    shadow_blur: float = _env_float("GEN_SHADOW_BLUR", 6.0)
-    bg_defocus: float = _env_float("GEN_BG_DEFOCUS", 0.6)
-    product_sharpen: float = _env_float("GEN_PRODUCT_SHARPEN", 0.35)
-    grain: float = _env_float("GEN_GRAIN", 1.3)
+    max_attempts: int = _env_int("GEN_MAX_ATTEMPTS", 2)
+    max_divergence: float = _env_float("GEN_MAX_DIVERGENCE", 0.35)
     api_token: str = os.environ.get("API_TOKEN", "").strip()
 
 
 settings = GenerationSettings()
 
-GEOMETRY_FLOOR_GLOSSY = "subtly glossy floor"
-GEOMETRY_FLOOR_MATTE = "matte non-reflective floor"
-
-GEOMETRY_BASE = (
-    "photograph of the interior defined by the reference depth map, "
-    "light areas of the depth map are close to the camera and dark areas are far, "
-    "reproduce the walls, the floor and every piece of furniture exactly as the "
-    "depth map shows them, keeping their shape, position and scale, "
-    "{furniture}"
-    "furnish and decorate the room in rich detail following the description, "
-    "{floor}, highly detailed, sharp focus, photorealistic"
-)
-
-TABLE_PHRASES = {
-    "box": (
-        "the pale block in the center is the table from the description, "
-        "render it exactly there with its exact silhouette, "
-    ),
-    "cylinder": (
-        "the pale round block in the center is the round table from the "
-        "description, render it exactly there with its round silhouette, "
-    ),
-}
-
-NO_TABLE_PHRASE = (
-    "the center of the floor stays clear as the stage for the shot's main subject, "
-)
-
-
-def geometry_base(
-    glossy: bool, table_visible: bool = False, table_shape: str = "box"
-) -> str:
-    furniture = (
-        TABLE_PHRASES.get(table_shape, TABLE_PHRASES["box"])
-        if table_visible
-        else NO_TABLE_PHRASE
-    )
-    return GEOMETRY_BASE.format(
-        furniture=furniture,
-        floor=GEOMETRY_FLOOR_GLOSSY if glossy else GEOMETRY_FLOOR_MATTE,
-    )
-
-EDIT_INSTRUCTION = (
-    "Edit the photograph inside the masked region, which covers the product "
-    "and the surface under it. "
-    "Relight the product so its illumination matches the scene's ambient "
-    "light, ground it on the surface so it sits there naturally with its "
-    "base touching the surface, and draw {surface}. "
-    "Never alter the product's shape, proportions, colors, materials or "
-    "painted artwork, and keep everything outside the masked region exactly "
-    "as it is. Photorealistic."
-)
-
-EDIT_SURFACE_GLOSSY = (
-    "a softly blurred reflection of the product and a clear contact shadow"
-)
-
-EDIT_SURFACE_MATTE = "only a soft diffuse contact shadow"
-
-
-def edit_instruction(glossy: bool) -> str:
-    return EDIT_INSTRUCTION.format(
-        surface=EDIT_SURFACE_GLOSSY if glossy else EDIT_SURFACE_MATTE
-    )
-
-SCENE_NEG = (
-    "people, person, text, watermark, logo, cartoon, painting, illustration, "
-    "low quality,"
-    "dark, gloomy, dirty floor, garbage, debris"
-)
-
 EDIT_NEG = (
-    "hallucinated details on the product, altered pattern, distorted shape, "
-    "extra elements, text, watermark, low quality"
+    "3d render, cgi, mockup, computer graphics, low poly, flat shading, "
+    "solid untextured planes, pastel planes, cartoon, illustration, low quality, "
+    "blurry, watermark, people"
 )
 
-MIN_SIDE = 512
-MAX_SIDE = 1536
-DEFAULT_SIDE = 1024
+LAYOUT_INSTRUCTION = (
+    "Picture 1 (Image 1) is the product packshot on a neutral gray background. "
+    "Picture 2 (Image 2) is a rough 3D room blockout layout mockup with a placeholder for the product. "
+    "Transform the 3D layout from Picture 2 into a photorealistic, high-end commercial photograph of: {scene}. "
+    "Strictly preserve the camera angle, perspective, spatial depth, and room layout from Picture 2. "
+    "Turn the flat 3D mockup planes from Picture 2 into realistic physical surfaces matching the scene: "
+    "replace the flat wall planes with realistic textured walls, "
+    "replace the floor plane with realistic flooring (such as hardwood, tile, stone, or concrete){table}, "
+    "and replace the ceiling plane with a realistic ceiling. "
+    "Do not keep the solid pastel 3D shader colors or flat CGI planes of Picture 2. "
+    "Place the exact product from Picture 1 in the position of the placeholder in Picture 2, "
+    "faithfully preserving its shape, proportions, packaging, artwork, and branding. "
+    "Relight the product to match the room lighting naturally, casting a realistic contact shadow "
+    "and surface reflection. Commercial advertising photography, crisp focus, photorealistic."
+)
+
+
+PHOTO_INSTRUCTION = (
+    "Picture 1 (Image 1) is the product packshot on a neutral gray background. "
+    "Do not change anything on the product and strictly preserve its details: "
+    "shape, proportions, materials, colors, artwork, text, and branding. "
+    "Draw this exact product naturally into the scene described by the user: {scene}. "
+    "The product must sit believably in the environment with correct scale and perspective, "
+    "matching the scene lighting with a realistic soft contact shadow. "
+    "Photorealistic high-end commercial photography, crisp focus."
+)
+
+
+def photo_instruction(scene: str) -> str:
+    return PHOTO_INSTRUCTION.format(
+        scene=scene.strip() or "a modern stylish interior with natural soft daylight"
+    )
+
+
+def layout_instruction(scene: str, table_visible: bool, table_shape: str = "box") -> str:
+    if not table_visible:
+        table = ""
+    elif table_shape == "cylinder":
+        table = ", replace the round cylinder block with a realistic round table or pedestal"
+    else:
+        table = ", replace the rectangular block with a realistic table, desk, or podium"
+    return LAYOUT_INSTRUCTION.format(
+        scene=scene.strip() or "a modern stylish interior with natural soft daylight",
+        table=table,
+    )
+
+
 KV_KEEP_SEEDS = 50
 
 IMAGE_ENV = {
     "HF_HOME": "/cache",
     "HF_HUB_ENABLE_HF_TRANSFER": "1",
     "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-    "GEN_STEPS": str(settings.steps),
-    "GEN_GUIDANCE": str(settings.guidance),
     "GEN_EDIT_MODEL": settings.edit_model,
     "GEN_EDIT_STEPS": str(settings.edit_steps),
     "GEN_EDIT_GUIDANCE": str(settings.edit_guidance),
-    "GEN_EDIT_STRENGTH": str(settings.edit_strength),
-    "GEN_DOF_SPREAD": str(settings.dof_spread),
-    "GEN_FOCUS_BLUR_MAX": str(settings.focus_blur_max),
-    "GEN_SHADOW_STRENGTH": str(settings.shadow_strength),
-    "GEN_SHADOW_BLUR": str(settings.shadow_blur),
-    "GEN_BG_DEFOCUS": str(settings.bg_defocus),
-    "GEN_PRODUCT_SHARPEN": str(settings.product_sharpen),
-    "GEN_GRAIN": str(settings.grain),
+    "GEN_MAX_ATTEMPTS": str(settings.max_attempts),
+    "GEN_MAX_DIVERGENCE": str(settings.max_divergence),
     "U2NET_HOME": "/cache/u2net",
 }

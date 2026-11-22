@@ -1,8 +1,9 @@
 import './styles/index.css'
 import { api } from './api.ts'
+import type { GenerateResult } from './api.ts'
 import { detectProductFile } from './lib/file-type.ts'
 import { preparePhotoCutout, aiPhotoCutout } from './lib/image.ts'
-import { base64ToBlob, dataUrlToBlob } from './lib/encode.ts'
+import { dataUrlToBlob } from './lib/encode.ts'
 import { setupDropzone } from './components/dropzone.ts'
 import { loadModelFile } from './components/model-loader.ts'
 import { createStudioScene } from './components/studio/index.ts'
@@ -19,6 +20,7 @@ interface LoadedProduct {
   data: ProductData
   previewUrl: string | null
   sourcePng: Blob | null
+  cutoutPng: Blob | null
   canUpgradeCutout: boolean
 }
 
@@ -50,9 +52,10 @@ const cutoutError = $('cutout-error')
 const photoControls = $('photo-controls')
 const modelInfo = $('model-info')
 const shotPreview = $<HTMLImageElement>('shot-preview')
+const shotFigure = $('shot-figure')
+const promptLead = $('prompt-lead')
 
 const promptInput = $<HTMLTextAreaElement>('prompt')
-const negativePromptInput = $<HTMLTextAreaElement>('negative-prompt')
 
 const roomInputs = {
   width: $<HTMLInputElement>('room-width'),
@@ -69,7 +72,6 @@ const tableInputs = {
   z: $<HTMLInputElement>('table-z'),
 }
 const photoHeightInput = $<HTMLInputElement>('photo-height')
-const surfaceGlossyInput = $<HTMLInputElement>('surface-glossy')
 
 const scene = createStudioScene($('scene'))
 const dropzone = setupDropzone($('dropzone'), (file) => void handleProductFile(file))
@@ -87,10 +89,10 @@ for (const button of stepperButtons) {
     if (stepperReachable(target)) setStep(target)
   })
 }
-backButton.addEventListener('click', () => setStep(Math.max(1, step - 1) as StepId))
+backButton.addEventListener('click', () => setStep(previousStep()))
 nextButton.addEventListener('click', () => {
   if (step === 3) void generate()
-  else setStep(Math.min(LAST_STEP, step + 1) as StepId)
+  else setStep(nextStep())
 })
 restartButton.addEventListener('click', () => {
   if (generating) return
@@ -102,8 +104,19 @@ function stepperReachable(target: StepId): boolean {
   if (target === step) return true
   if (generating || step === LAST_STEP) return false
   if (target === 1) return true
+  if (target === 2) return product?.kind === 'model'
   if (target === LAST_STEP) return resultReached
   return product !== null
+}
+
+function nextStep(): StepId {
+  if (step === 1 && product?.kind === 'photo') return 3
+  return Math.min(LAST_STEP, step + 1) as StepId
+}
+
+function previousStep(): StepId {
+  if (step === 3 && product?.kind === 'photo') return 1
+  return Math.max(1, step - 1) as StepId
 }
 
 function setStep(next: StepId): void {
@@ -111,7 +124,14 @@ function setStep(next: StepId): void {
   for (const [id, section] of Object.entries(stepSections)) {
     section.hidden = Number(id) !== next
   }
-  if (next === 3) shotPreview.src = scene.captureView()
+  if (next === 3) {
+    promptLead.textContent =
+      product?.kind === 'photo'
+        ? 'The product is drawn straight into the scene you describe — no 3D placement is involved.'
+        : 'The scene follows your camera exactly; the prompt decides what the space around the product is.'
+    shotFigure.hidden = product?.kind === 'photo'
+    if (product?.kind !== 'photo') shotPreview.src = scene.captureView()
+  }
   updateNav()
 }
 
@@ -152,6 +172,7 @@ async function handleProductFile(file: File): Promise<void> {
         data: { kind: 'photo', url: prepared.cutout.url, aspect: prepared.cutout.aspect },
         previewUrl: prepared.cutout.url,
         sourcePng: prepared.sourcePng,
+        cutoutPng: prepared.cutout.png,
         canUpgradeCutout: prepared.method === 'chromakey',
       }
     } else {
@@ -164,6 +185,7 @@ async function handleProductFile(file: File): Promise<void> {
         data: { kind: 'model', object: model.object },
         previewUrl: null,
         sourcePng: null,
+        cutoutPng: null,
         canUpgradeCutout: false,
       }
     }
@@ -193,6 +215,7 @@ async function upgradePhotoCutout(): Promise<void> {
     if (product.previewUrl) URL.revokeObjectURL(product.previewUrl)
     product.data = { kind: 'photo', url: cutout.url, aspect: cutout.aspect }
     product.previewUrl = cutout.url
+    product.cutoutPng = cutout.png
     product.details = `Photo · ${cutout.width} × ${cutout.height} px`
     product.canUpgradeCutout = false
     scene.setProduct(product.data)
@@ -276,7 +299,6 @@ function applyScene(): void {
   $('table-controls').classList.toggle('controls__group--disabled', !table.visible)
   scene.setRoom(room)
   scene.setTable(table)
-  scene.setGlossy(surfaceGlossyInput.checked)
   if (product?.kind === 'photo') scene.setPhotoHeight(Number(photoHeightInput.value) / 100)
   updateSliderArrows()
 }
@@ -348,7 +370,6 @@ for (const input of Object.values(tableInputs)) {
   input.addEventListener('input', applyScene)
 }
 photoHeightInput.addEventListener('input', applyScene)
-surfaceGlossyInput.addEventListener('input', applyScene)
 setupSliderArrows()
 
 function formatSize(size: { x: number; y: number; z: number }): string {
@@ -359,48 +380,45 @@ function randomSeed(): number {
   return crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff
 }
 
+const PHOTO_SIZE = { width: 1024, height: 1024 }
+
 async function generate(): Promise<void> {
   if (!product || generating) return
   generating = true
   updateNav()
   setStep(4)
   const seed = randomSeed()
-  const glossy = surfaceGlossyInput.checked
+  const startedAt = performance.now()
   try {
-    resultView.showStatus('Rendering the shot from your camera…')
-    const frame = scene.captureSize()
-    const depth = dataUrlToBlob(scene.captureDepth())
-    const plate = dataUrlToBlob(scene.capturePlate())
+    let result: GenerateResult
+    if (product.kind === 'photo') {
+      resultView.showStatus('Generating the photo…')
+      result = await api.generatePhoto(
+        { product: product.cutoutPng! },
+        { seed, width: PHOTO_SIZE.width, height: PHOTO_SIZE.height, prompt: promptInput.value.trim() },
+      )
+    } else {
+      resultView.showStatus('Preparing the shot…')
+      const frame = scene.captureSize()
+      const layout = dataUrlToBlob(scene.captureView())
+      const plate = dataUrlToBlob(scene.capturePlate())
+      const table = currentTable()
 
-    resultView.showStatus('Painting the background…')
-    const table = currentTable()
-    const sceneRes = await api.scene(
-      {
-        seed,
-        width: frame.width,
-        height: frame.height,
-        prompt: promptInput.value.trim(),
-        negative_prompt: negativePromptInput.value.trim(),
-        glossy,
-        table_visible: table.visible,
-        table_shape: table.shape,
-      },
-      depth,
-    )
-
-    resultView.showStatus('Compositing the product…')
-    const result = await api.compose(
-      plate,
-      base64ToBlob(sceneRes.scene_b64, 'image/jpeg'),
-      base64ToBlob(sceneRes.depth_b64, 'image/png'),
-      { seed, glossy },
-    )
-
+      resultView.showStatus('Generating the photo…')
+      result = await api.generate(
+        { layout, plate, product: product.cutoutPng },
+        {
+          seed, width: frame.width, height: frame.height,
+          prompt: promptInput.value.trim(),
+          table_visible: table.visible, table_shape: table.shape,
+        },
+      )
+    }
     resultReached = true
     resultView.showResult({
       imageUrl: `data:image/jpeg;base64,${result.image_b64}`,
       seed: result.seed,
-      seconds: sceneRes.seconds + (result.seconds ?? 0),
+      seconds: (performance.now() - startedAt) / 1000,
     })
   } catch (error) {
     resultView.showError(describeError(error))

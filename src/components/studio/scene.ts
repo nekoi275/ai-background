@@ -2,14 +2,11 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import {
-  createDepthMaterial,
   createRoomMaterials,
   createTableMaterial,
-  setSurfaceGlossiness,
 } from './materials.ts'
 import {
   calculateCaptureDims,
-  captureDepthPass,
   capturePlatePass,
   renderCapture,
   type RenderContext,
@@ -68,8 +65,6 @@ key.position.set(3, 6, 4)
 const fill = new THREE.DirectionalLight(0xffffff, 0.3)
 fill.position.set(-4, 5, -3)
 scene.add(key, fill)
-
-  const depthContext = createDepthMaterial()
 
   const pmrem = new THREE.PMREMGenerator(renderer)
   const environmentTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
@@ -214,10 +209,6 @@ scene.add(key, fill)
       placeProduct()
     },
 
-    setGlossy(glossy) {
-      setSurfaceGlossiness(roomMaterials.floor, tableMaterial, glossy)
-    },
-
     captureSize() {
       return calculateCaptureDims(camera)
     },
@@ -225,10 +216,6 @@ scene.add(key, fill)
     captureView() {
       const dims = calculateCaptureDims(camera)
       return renderCapture(renderer, scene, camera, canvas, dims.width, dims.height, () => {}, () => {})
-    },
-
-    captureDepth() {
-      return captureDepthPass(renderCtx, depthContext.material, depthContext.uniforms.uFar, room)
     },
 
     capturePlate() {

@@ -96,6 +96,64 @@ export interface PreparedPhoto {
   method: CutoutMethod
 }
 
+function cleanEdges(data: Uint8ClampedArray, w: number, h: number): void {
+  const n = w * h
+  const alpha = new Uint8Array(n)
+  for (let p = 0; p < n; p++) alpha[p] = data[p * 4 + 3]
+  const eroded = alpha.slice()
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const p = y * w + x
+      eroded[p] = Math.min(alpha[p], alpha[p - 1], alpha[p + 1], alpha[p - w], alpha[p + w])
+    }
+  }
+  const core = new Uint8Array(n)
+  for (let p = 0; p < n; p++) core[p] = eroded[p] >= 250 ? 1 : 0
+  for (let pass = 0; pass < 3; pass++) {
+    const filled = core.slice()
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const p = y * w + x
+        if (core[p] || eroded[p] === 0) continue
+        let r = 0
+        let g = 0
+        let b = 0
+        let c = 0
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const q = p + dy * w + dx
+            if (core[q]) {
+              r += data[q * 4]
+              g += data[q * 4 + 1]
+              b += data[q * 4 + 2]
+              c++
+            }
+          }
+        }
+        if (c) {
+          data[p * 4] = r / c
+          data[p * 4 + 1] = g / c
+          data[p * 4 + 2] = b / c
+          filled[p] = 1
+        }
+      }
+    }
+    core.set(filled)
+  }
+  for (let p = 0; p < n; p++) data[p * 4 + 3] = eroded[p]
+}
+
+export async function cleanCutout(png: Blob): Promise<Blob> {
+  const bmp = await createImageBitmap(png)
+  const canvas = toCanvas(bmp)
+  bmp.close()
+  const ctx = canvas.getContext('2d')!
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  cleanEdges(img.data, canvas.width, canvas.height)
+  ctx.putImageData(img, 0, 0)
+  return canvasToPng(canvas)
+}
+
 export async function preparePhotoCutout(
   file: File,
   remoteCutout: (png: Blob) => Promise<Blob>,
@@ -116,12 +174,15 @@ export async function preparePhotoCutout(
       method = 'ai'
     }
   }
-  return { sourcePng, cutout: await toPhotoCutout(cutout), method }
+  const cleaned = await cleanCutout(cutout)
+  return { sourcePng, cutout: await toPhotoCutout(cleaned), method }
 }
 
 export async function aiPhotoCutout(
   sourcePng: Blob,
   remoteCutout: (png: Blob) => Promise<Blob>,
 ): Promise<PhotoCutout> {
-  return toPhotoCutout(await remoteCutout(sourcePng))
+  const raw = await remoteCutout(sourcePng)
+  const cleaned = await cleanCutout(raw)
+  return toPhotoCutout(cleaned)
 }

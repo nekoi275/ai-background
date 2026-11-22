@@ -12,34 +12,26 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from PIL import Image
 
-from .config import DEFAULT_SIDE, SCENE_NEG, edit_instruction, geometry_base, settings
-from .cutout import alpha_trimmed, cutout_product
-from .depth import (
-    depth_cond_from_png,
-    depth_map_from_png,
-    jpeg_bytes,
-    load_image,
-    png_bytes,
-    snap_resolution,
-)
-from .compositing import build_product_mask, compose_classical
+from .config import layout_instruction, photo_instruction, settings
+from .cutout import alpha_trimmed, cutout_product, product_reference
+from .depth import jpeg_bytes, png_bytes
 from .storage import RecoveryStorage
 
 
-class SceneRequestParams(BaseModel):
+class GenerateParams(BaseModel):
     seed: int | None = None
-    width: float = Field(default=DEFAULT_SIDE)
-    height: float = Field(default=DEFAULT_SIDE)
+    width: int = Field(default=1024, ge=256, le=2048)
+    height: int = Field(default=1024, ge=256, le=2048)
     prompt: str = ""
-    negative_prompt: str = ""
-    glossy: bool = True
     table_visible: bool = False
     table_shape: str = "box"
 
 
-class ComposeRequestParams(BaseModel):
+class PhotoParams(BaseModel):
     seed: int | None = None
-    glossy: bool = True
+    width: int = Field(default=1024, ge=256, le=2048)
+    height: int = Field(default=1024, ge=256, le=2048)
+    prompt: str = ""
 
 
 def verify_token(authorization: str | None = Header(None)) -> None:
@@ -71,7 +63,6 @@ def parse_form_json(data: str, model_cls: type[T]) -> T:
 
 def create_app(
     storage: RecoveryStorage,
-    harmonizer_factory: Callable[[], Any],
     model_factory: Callable[[], Any],
 ) -> FastAPI:
     """FastAPI application factory with dependency-injected storage and model."""
@@ -105,7 +96,7 @@ def create_app(
 
     @fast.get("/api/result/{seed}")
     def result(seed: int, _auth: None = Depends(verify_token)):
-        """Poll endpoint for the spawned harmonize job."""
+        """Poll endpoint for the spawned generation job."""
         try:
             jpeg = storage.get_chunks(f"last_{seed}")
         except KeyError:
@@ -134,22 +125,13 @@ def create_app(
         except (modal.exception.TimeoutError, TimeoutError):
             raise HTTPException(404, "result not ready")
         except Exception as exc:
-            detail = f"Harmonize failed: {type(exc).__name__}: {exc}"
+            detail = f"Generation failed: {type(exc).__name__}: {exc}"
             storage.put_chunks(f"compose_error_{seed}", detail.encode())
             raise HTTPException(500, detail=detail)
 
         storage.put_chunks(f"last_{seed}", jpeg)
         b64 = base64.b64encode(jpeg).decode()
         return {"image_b64": b64, "seed": seed, "recovered": False}
-
-    @fast.get("/api/scene-result/{seed}")
-    def scene_result(seed: int, _auth: None = Depends(verify_token)):
-        """Recovery endpoint for stage 1 scene generation."""
-        try:
-            raw = storage.get_chunks(f"scene_{seed}")
-        except KeyError:
-            raise HTTPException(404, "scene result not ready")
-        return json.loads(raw)
 
     @fast.post("/api/cutout")
     def cutout(
@@ -170,22 +152,12 @@ def create_app(
                     out.save(buf, "PNG")
                     print(f"cutout bypass ok seconds={time.time() - t0:.1f}", flush=True)
                     return Response(content=buf.getvalue(), media_type="image/png")
-            try:
-                model_instance = model_factory()
-                png_out = model_instance.cutout.remote(raw_bytes)
-                print(f"cutout qwen ok seconds={time.time() - t0:.1f}", flush=True)
-                return Response(content=png_out, media_type="image/png")
-            except Exception as model_exc:
-                print(
-                    f"GPU cutout fallback to rembg ({type(model_exc).__name__}: {model_exc})",
-                    flush=True,
-                )
-                cutout_img = cutout_product(src.convert("RGB"))
-                out = alpha_trimmed(cutout_img)
-                buf = io.BytesIO()
-                out.save(buf, "PNG")
-                print(f"cutout rembg ok seconds={time.time() - t0:.1f}", flush=True)
-                return Response(content=buf.getvalue(), media_type="image/png")
+            cutout_img = cutout_product(src.convert("RGB"))
+            out = alpha_trimmed(cutout_img)
+            buf = io.BytesIO()
+            out.save(buf, "PNG")
+            print(f"cutout rembg ok seconds={time.time() - t0:.1f}", flush=True)
+            return Response(content=buf.getvalue(), media_type="image/png")
         except HTTPException:
             raise
         except Exception as exc:
@@ -195,154 +167,66 @@ def create_app(
                 detail=f"Cutout failed: {type(exc).__name__}: {exc}",
             ) from exc
 
-    @fast.post("/api/scene")
-    def scene(
+    @fast.post("/api/generate-photo")
+    def generate_photo(
+        product: UploadFile = File(...),
         params: str = Form("{}"),
-        depth: UploadFile = File(...),
         _auth: None = Depends(verify_token),
     ):
-        p = parse_form_json(params, SceneRequestParams)
-        seed = (
-            p.seed
-            if p.seed is not None
-            else random.randint(0, 2**31 - 1)
-        )
-        width = snap_resolution(p.width)
-        height = snap_resolution(p.height)
-
-        user_prompt = p.prompt.strip()
-        geometry = geometry_base(p.glossy, p.table_visible, p.table_shape)
-        prompt = f"{user_prompt}, {geometry}" if user_prompt else geometry
-        neg = p.negative_prompt.strip() or SCENE_NEG
-        raw_depth = depth.file.read()
-        if not raw_depth:
-            raise HTTPException(
-                status_code=400,
-                detail="depth file is required: depth-guided scene generation is mandatory",
-            )
-
-        t0 = time.time()
+        p = parse_form_json(params, PhotoParams)
+        seed = p.seed if p.seed is not None else random.randint(0, 2**31 - 1)
         try:
-            cond_png = png_bytes(depth_cond_from_png(raw_depth, width, height))
-            model_instance = model_factory()
-            raw, depth_png = model_instance.compose_scene.remote(
-                seed=seed,
-                prompt=prompt,
-                neg=neg,
-                width=width,
-                height=height,
-                cond_png=cond_png,
-            )
-            scene_img = Image.open(io.BytesIO(raw)).convert("RGB")
-            print(
-                f"scene endpoint ok seed={seed} depth_png_bytes={len(depth_png)} "
-                f"seconds={time.time() - t0:.1f}",
-                flush=True,
-            )
+            src = Image.open(io.BytesIO(product.file.read())).convert("RGBA")
+            ref_png = png_bytes(product_reference(src))
         except HTTPException:
             raise
         except Exception as exc:
-            traceback.print_exc()
-            raise HTTPException(
-                status_code=500,
-                detail=f"Scene generation failed: {type(exc).__name__}: {exc}",
-            ) from exc
-
-        resp = {
-            "scene_b64": base64.b64encode(
-                jpeg_bytes(scene_img, quality=92)
-            ).decode(),
-            "depth_b64": base64.b64encode(depth_png).decode(),
-            "seed": seed,
-            "width": width,
-            "height": height,
-            "seconds": round(time.time() - t0, 1),
-            "cond_b64": base64.b64encode(cond_png).decode(),
-        }
-        storage.put_chunks(f"scene_{seed}", json.dumps(resp).encode())
+            raise HTTPException(400, f"Unreadable product: {exc}") from exc
+        prompt = photo_instruction(p.prompt)
+        print(f"[api.generate-photo] seed={seed} prompt={prompt!r} dims={p.width}x{p.height}", flush=True)
+        call = model_factory().photo_to_photo.spawn(
+            product_png=ref_png,
+            prompt=prompt,
+            seed=seed,
+            width=p.width,
+            height=p.height,
+        )
+        storage.put_chunks(f"compose_call_{seed}", call.object_id.encode())
         storage.track_seed(seed)
-        return resp
+        return {"seed": seed, "queued": True}
 
-    @fast.post("/api/compose")
-    def compose(
+    @fast.post("/api/generate")
+    def generate(
+        layout: UploadFile = File(...),
         plate: UploadFile = File(...),
-        scene: UploadFile = File(...),
-        depth: UploadFile = File(...),
+        product: UploadFile | None = File(None),
         params: str = Form("{}"),
         _auth: None = Depends(verify_token),
     ):
-        p = parse_form_json(params, ComposeRequestParams)
-        seed = (
-            p.seed
-            if p.seed is not None
-            else random.randint(0, 2**31 - 1)
-        )
-
-        raw_depth = depth.file.read()
-        if not raw_depth:
-            raise HTTPException(
-                status_code=400,
-                detail="depth file is required: pass the scene response's depth_b64 "
-                "as a 16-bit PNG (it drives depth-of-field)",
-            )
-
+        p = parse_form_json(params, GenerateParams)
+        seed = p.seed if p.seed is not None else random.randint(0, 2**31 - 1)
+        plate_bytes = plate.file.read()
         try:
-            t0g = time.time()
-            scene_img = load_image(scene.file.read(), "RGB")
-            try:
-                plate_src = Image.open(io.BytesIO(plate.file.read()))
-            except Exception as exc:
-                raise HTTPException(
-                    400, detail=f"Unreadable product plate: {exc}"
-                ) from exc
-
-            width, height = scene_img.size
-            dhat = depth_map_from_png(raw_depth, width, height)
-            plate_img = plate_src.convert("RGBA")
-            if plate_img.size != (width, height):
-                plate_img = plate_img.resize(
-                    (width, height), Image.Resampling.LANCZOS
-                )
-
-            composited = compose_classical(
-                plate_img,
-                seed,
-                width,
-                height,
-                scene_img=scene_img,
-                dhat=dhat,
-                with_grain=False,
-            )
-            buf = io.BytesIO()
-            composited.save(buf, "PNG")
-            mask_png = png_bytes(build_product_mask(plate_img))
-            alpha_png = png_bytes(plate_img.split()[3])
-
-            harmonizer = harmonizer_factory()
-            call = harmonizer.harmonize.spawn(
-                image_png=buf.getvalue(),
-                mask_png=mask_png,
-                alpha_png=alpha_png,
-                glossy=p.glossy,
-                width=width,
-                height=height,
-                seed=seed,
-            )
-            storage.put_chunks(f"compose_call_{seed}", call.object_id.encode())
-            storage.track_seed(seed)
-            print(
-                f"compose queued seed={seed} "
-                f"classical_seconds={time.time() - t0g:.1f}",
-                flush=True,
-            )
-            return {"seed": seed, "queued": True}
+            src = Image.open(io.BytesIO(product.file.read() if product else plate_bytes)).convert("RGBA")
+            ref_png = png_bytes(product_reference(src))
         except HTTPException:
             raise
         except Exception as exc:
-            traceback.print_exc()
-            raise HTTPException(
-                status_code=500,
-                detail=f"Composite failed: {type(exc).__name__}: {exc}",
-            ) from exc
+            raise HTTPException(400, f"Unreadable product: {exc}") from exc
+        prompt = layout_instruction(p.prompt, p.table_visible, p.table_shape)
+        print(f"[api.generate] seed={seed} prompt={prompt!r} dims={p.width}x{p.height}", flush=True)
+        call = model_factory().layout_to_photo.spawn(
+            product_png=ref_png,
+            layout_png=layout.file.read(),
+            plate_png=plate_bytes,
+            prompt=prompt,
+            seed=seed,
+            width=p.width,
+            height=p.height,
+        )
+        storage.put_chunks(f"compose_call_{seed}", call.object_id.encode())
+        storage.track_seed(seed)
+        return {"seed": seed, "queued": True}
 
     return fast
+

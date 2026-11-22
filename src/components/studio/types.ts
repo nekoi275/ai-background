@@ -27,9 +27,7 @@ export interface StudioScene {
   setTable(table: TableConfig): void
   setProduct(product: ProductData | null): void
   setPhotoHeight(fraction: number): void
-  setGlossy(glossy: boolean): void
   captureSize(): { width: number; height: number }
   captureView(): string
-  captureDepth(): string
   capturePlate(): string
 }

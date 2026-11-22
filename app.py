@@ -1,8 +1,7 @@
-
 import modal
 
-from backend import Harmonizer as HarmonizerCls, Model as ModelCls, RecoveryStorage, create_app
-from backend.config import IMAGE_ENV, get_edit_gpu_config, get_gpu_config
+from backend import Model as ModelCls, RecoveryStorage, create_app
+from backend.config import IMAGE_ENV, get_gpu_config
 
 MIN = 60
 
@@ -23,6 +22,7 @@ gpu_image = (
         "python-multipart",
         "pillow",
         "numpy",
+        "opencv-python-headless",
         "hf_transfer",
     )
     .env(IMAGE_ENV)
@@ -49,21 +49,11 @@ storage = RecoveryStorage(kv)
 Model = app.cls(
     image=gpu_image,
     gpu=get_gpu_config(),
-    timeout=20 * MIN,
-    scaledown_window=60,
-    volumes={"/cache": hf_vol},
-    memory=32768,
-    enable_memory_snapshot=True,
-)(ModelCls)
-
-Harmonizer = app.cls(
-    image=gpu_image,
-    gpu=get_edit_gpu_config(),
     timeout=30 * MIN,
-    scaledown_window=60,
+    scaledown_window=300,
     volumes={"/cache": hf_vol},
     memory=98304,
-)(HarmonizerCls)
+)(ModelCls)
 
 
 @app.function(
@@ -76,6 +66,5 @@ Harmonizer = app.cls(
 )
 @modal.asgi_app()
 def api():
-    return create_app(
-        storage=storage, model_factory=Model, harmonizer_factory=Harmonizer
-    )
+    return create_app(storage=storage, model_factory=Model)
+

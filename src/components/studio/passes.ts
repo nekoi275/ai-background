@@ -1,5 +1,4 @@
 import * as THREE from 'three'
-import type { RoomConfig } from './types.ts'
 
 export const CAPTURE_SIZE = 1024
 export const CAPTURE_MIN_SIDE = 512
@@ -26,18 +25,6 @@ export function calculateCaptureDims(camera: THREE.PerspectiveCamera): { width: 
     width: Math.max(CAPTURE_MIN_SIDE, Math.round(CAPTURE_SIZE * aspect)),
     height: CAPTURE_SIZE,
   }
-}
-
-export function farthestCornerDistance(room: RoomConfig, origin: THREE.Vector3): number {
-  let far = 0
-  for (const x of [-room.width / 2, room.width / 2]) {
-    for (const y of [0, room.height]) {
-      for (const z of [-room.depth / 2, room.depth / 2]) {
-        far = Math.max(far, origin.distanceTo(new THREE.Vector3(x, y, z)))
-      }
-    }
-  }
-  return far
 }
 
 export function renderCapture(
@@ -95,47 +82,9 @@ export function createProductOnlyPass(
   }
 }
 
-export function captureDepthPass(
-  context: RenderContext,
-  depthMaterial: THREE.Material,
-  uFarRef: { value: number },
-  room: RoomConfig,
-): string {
-  const { renderer, scene, camera, canvas, productRoot } = context
-  const swaps = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>()
-  uFarRef.value = farthestCornerDistance(room, camera.position) * 1.05
-  const dims = calculateCaptureDims(camera)
-  productRoot.visible = false
-  try {
-    return renderCapture(
-      renderer,
-      scene,
-      camera,
-      canvas,
-      dims.width,
-      dims.height,
-      () => {
-        scene.traverse((node) => {
-          const mesh = node as THREE.Mesh
-          if (!mesh.isMesh) return
-          swaps.set(mesh, mesh.material)
-          mesh.material = depthMaterial
-        })
-        scene.background = null
-      },
-      () => {
-        for (const [mesh, material] of swaps) mesh.material = material
-      },
-    )
-  } finally {
-    productRoot.visible = true
-  }
-}
-
 export function capturePlatePass(context: RenderContext, tableVisible: boolean): string {
   const { renderer, scene, camera, canvas } = context
   const dims = calculateCaptureDims(camera)
   const pass = createProductOnlyPass(context, tableVisible)
   return renderCapture(renderer, scene, camera, canvas, dims.width, dims.height, pass.setup, pass.teardown)
 }
-

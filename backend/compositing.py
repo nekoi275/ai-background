@@ -1,258 +1,73 @@
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
-from .config import GenerationSettings, settings as default_settings
+from PIL import Image
 
 
-def sharpen_product(
-    plate_img: Image.Image,
-    settings: GenerationSettings = default_settings,
-) -> Image.Image:
-    """Mild unsharp on the product's RGB so it reads crisper than the
-    DoF-blurred background and pops out of the scene."""
-    if settings.product_sharpen <= 0:
-        return plate_img
-    r, g, b, a = plate_img.split()
-    sharpened = Image.merge("RGB", (r, g, b)).filter(
-        ImageFilter.UnsharpMask(
-            radius=1.6,
-            percent=int(settings.product_sharpen * 100),
-            threshold=3,
-        )
-    )
-    return Image.merge("RGBA", (*sharpened.split(), a))
+def _get_cv2():
+    global cv2
+    if cv2 is None:
+        import cv2
+    return cv2
 
 
-def defringe_plate(plate_img: Image.Image) -> Image.Image:
-    if plate_img.mode != "RGBA":
-        return plate_img
-
-    alpha_ch = plate_img.split()[3]
-    bbox = alpha_ch.getbbox()
-    if bbox is None:
-        return plate_img
-
-    alpha = np.asarray(alpha_ch, np.float32) / 255.0
-    if (alpha >= 0.999).all():
-        return plate_img
-
-    rgb = np.asarray(plate_img.convert("RGB"), np.float32)
-
-    core_mask = (alpha > 0.70).astype(np.float32)
-    if not core_mask.any():
-        return plate_img
-
-    core_rgb = rgb * core_mask[..., None]
-
-    def _blur(arr: np.ndarray, radius: float) -> np.ndarray:
-        if arr.ndim == 2:
-            im = Image.fromarray((np.clip(arr, 0.0, 1.0) * 255.0).astype(np.uint8))
-            return (
-                np.asarray(
-                    im.filter(ImageFilter.GaussianBlur(radius)), np.float32
-                )
-                / 255.0
-            )
-        else:
-            im = Image.fromarray(np.clip(arr, 0.0, 255.0).astype(np.uint8))
-            return np.asarray(
-                im.filter(ImageFilter.GaussianBlur(radius)), np.float32
-            )
-
-    blurred_core_rgb = _blur(core_rgb, 2.5)
-    blurred_weight = _blur(core_mask, 2.5)
-
-    bleed_rgb = blurred_core_rgb / np.maximum(blurred_weight[..., None], 1e-4)
-
-    border_factor = np.clip((0.85 - alpha) / 0.85, 0.0, 1.0)[..., None]
-    decontaminated_rgb = rgb * (1.0 - border_factor) + bleed_rgb * border_factor
-
-    clean_alpha = (
-        alpha_ch.filter(ImageFilter.MinFilter(3))
-        .filter(ImageFilter.GaussianBlur(0.5))
-    )
-
-    clean_rgb_im = Image.fromarray(
-        np.clip(decontaminated_rgb, 0, 255).astype(np.uint8)
-    )
-    return Image.merge("RGBA", (*clean_rgb_im.split(), clean_alpha))
+def _gray(rgb: np.ndarray) -> np.ndarray:
+    cv = _get_cv2()
+    g = cv.cvtColor(np.clip(rgb, 0, 255).astype(np.uint8), cv.COLOR_RGB2GRAY)
+    return cv.GaussianBlur(g, (0, 0), 1.2).astype(np.float32)
 
 
-def contact_shadow(
-    out: Image.Image,
-    plate_img: Image.Image,
-    settings: GenerationSettings = default_settings,
-) -> Image.Image:
-    if settings.shadow_strength <= 0:
-        return out
-
-    alpha_ch = plate_img.split()[3]
-    bbox = alpha_ch.getbbox()
-    if bbox is None:
-        return out
-
-    width, height = out.size
-    alpha = np.asarray(alpha_ch, np.float32) / 255.0
-    y_idx, x_idx = np.where(alpha > 0.3)
-    if len(y_idx) == 0:
-        return out
-
-    y1 = int(y_idx.max())
-
-    y_bot = np.zeros(width, np.int32)
-    for c in np.unique(x_idx):
-        y_bot[c] = y_idx[x_idx == c].max()
-
-    clearance = y1 - y_bot
-    contact_cols = (alpha > 0.3).any(axis=0) & (clearance <= 4)
-    if not contact_cols.any():
-        contact_cols = (alpha > 0.3).any(axis=0)
-
-    contact_x = np.where(contact_cols)[0]
-    cx_min, cx_max = int(contact_x.min()), int(contact_x.max())
-    cx_mid = (cx_min + cx_max) // 2
-    contact_w = max(12, cx_max - cx_min)
-
-    rx1 = int(contact_w * 0.70)
-    ry1 = max(4, int(contact_w * 0.20))
-
-    layer1 = Image.new("L", (width, height), 0)
-    draw1 = ImageDraw.Draw(layer1)
-    draw1.ellipse(
-        [cx_mid - rx1, max(0, y1 - ry1 // 2), cx_mid + rx1, min(height, y1 + ry1 * 2)],
-        fill=255,
-    )
-    layer1 = layer1.filter(ImageFilter.GaussianBlur(max(2.0, ry1 * 0.6)))
-    m1 = (np.asarray(layer1, np.float32) / 255.0) * (settings.shadow_strength * 0.9)
-
-    rx2 = int(contact_w * 1.15)
-    ry2 = max(6, int(contact_w * 0.38))
-
-    layer2 = Image.new("L", (width, height), 0)
-    draw2 = ImageDraw.Draw(layer2)
-    draw2.ellipse(
-        [cx_mid - rx2, max(0, y1 - ry2 // 3), cx_mid + rx2, min(height, y1 + ry2 * 2)],
-        fill=255,
-    )
-    layer2 = layer2.filter(ImageFilter.GaussianBlur(max(4.0, ry2 * 0.7)))
-    m2 = (np.asarray(layer2, np.float32) / 255.0) * (settings.shadow_strength * 0.45)
-
-    total_m = np.clip(m1 + m2, 0.0, 0.70)
-
-    arr = np.asarray(out, np.float32)
-    arr[..., :3] *= 1.0 - total_m[..., None]
-    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+def _estimate_warp(result: np.ndarray, plate_rgb: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    cv = _get_cv2()
+    inner = cv.erode((alpha > 0.5).astype(np.uint8) * 255, np.ones((9, 9), np.uint8))
+    warp = np.eye(2, 3, dtype=np.float32)
+    try:
+        _, warp = cv.findTransformECC(
+            _gray(result), _gray(plate_rgb), warp, cv.MOTION_AFFINE,
+            (cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 100, 1e-6), inner, 5)
+        scale = float(np.sqrt(abs(np.linalg.det(warp[:, :2]))))
+        if not (0.9 < scale < 1.1) or np.abs(warp[:, 2]).max() > 60:
+            raise cv.error("implausible warp")
+    except cv.error:
+        warp = np.eye(2, 3, dtype=np.float32)
+    print(f"[restore] warp={warp.round(3).tolist()}", flush=True)
+    return warp
 
 
-def build_product_mask(plate_img: Image.Image) -> Image.Image:
-    width, height = plate_img.size
-    alpha = plate_img.split()[3]
-    bbox = alpha.getbbox()
-    if bbox is None:
-        raise ValueError(
-            "product plate has no opaque pixels: cannot build the harmonize mask"
-        )
+def restore_product(result: Image.Image, plate: Image.Image, sigma: float = 6.0):
+    """Свет и цвет товара берём от модели, мелкие детали от оригинальной вырезки.
+    Возвращает (картинка, расхождение 0..~1; чем больше, тем сильнее модель исказила товар)."""
+    cv = _get_cv2()
+    r = np.asarray(result.convert("RGB"), np.float32)
+    p = np.asarray(plate.convert("RGBA").resize(result.size, Image.Resampling.LANCZOS), np.float32)
+    a0 = p[..., 3] / 255.0
+    if (a0 > 0.5).sum() < 500:
+        raise ValueError("product plate is empty")
 
-    x0, y0, x1, y1 = bbox
-    pw = max(1, x1 - x0)
-    ph = max(1, y1 - y0)
+    warp = _estimate_warp(r, p[..., :3], a0)
+    h, w = a0.shape
+    prem = cv.warpAffine(np.dstack([p[..., :3] * a0[..., None], a0]).astype(np.float32),
+                         warp, (w, h), flags=cv.INTER_LINEAR | cv.WARP_INVERSE_MAP)
+    a = np.clip(prem[..., 3], 0, 1)
+    rgb = prem[..., :3] / np.maximum(a, 1e-4)[..., None]
 
-    mask = Image.new("L", (width, height), 0)
-    ring_arr = (np.asarray(alpha) > 8).astype(np.uint8) * 255
-    ring = Image.fromarray(ring_arr, "L").filter(
-        ImageFilter.MaxFilter(max(3, round(width * 0.025) | 1))
-    )
-    mask.paste(ring, (0, 0))
+    den = np.maximum(cv.GaussianBlur(a, (0, 0), sigma), 1e-3)[..., None]
+    nb = lambda x: cv.GaussianBlur(x * a[..., None], (0, 0), sigma) / den
+    new = np.clip(nb(r) + (rgb - nb(rgb)), 0, 255)
 
-    draw = ImageDraw.Draw(mask)
-    cx = (x0 + x1) / 2
-    top = max(0, y0 - int(ph * 0.35))
-    bottom = min(height, y1 + int(ph * 0.90))
-    draw.polygon(
-        [
-            (cx - pw * 1.3 / 2, top),
-            (cx + pw * 1.3 / 2, top),
-            (cx + pw * 2.4 / 2, bottom),
-            (cx - pw * 2.4 / 2, bottom),
-        ],
-        fill=255,
-    )
+    sob = lambda x: cv.Sobel(_gray(x), cv.CV_32F, 1, 1, ksize=3)
+    inner = cv.erode((a > 0.5).astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+    div = 1.0
+    if inner.sum() > 500:
+        c = np.corrcoef(sob(r)[inner], sob(rgb)[inner])[0, 1]
+        div = 1.0 - float(np.nan_to_num(c, nan=0.0))
 
-    feather = max(1.0, width * 0.004)
-    return mask.filter(ImageFilter.GaussianBlur(feather))
+    al = cv.GaussianBlur(a, (0, 0), 0.6)[..., None]
+    out = r * (1 - al) + new * al
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8)), div
 
 
-def apply_grain(
-    img: Image.Image,
-    seed: int,
-    settings: GenerationSettings = default_settings,
-) -> Image.Image:
-    if settings.grain <= 0:
-        return img
-    noise = np.random.default_rng(seed).normal(
-        0.0, settings.grain, (img.height, img.width, 1)
-    ).astype(np.float32)
-    arr = np.asarray(img, dtype=np.float32) + noise
-    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
 
-def compose_classical(
-    plate_img: Image.Image,
-    seed: int,
-    width: int,
-    height: int,
-    scene_img: Image.Image,
-    dhat: np.ndarray,
-    with_grain: bool = True,
-    settings: GenerationSettings = default_settings,
-) -> Image.Image:
-    """Pixel-space compositing: DoF, paste, shadows, harmonization, grain."""
-    if settings.bg_defocus > 0:
-        scene_img = scene_img.filter(
-            ImageFilter.GaussianBlur(settings.bg_defocus)
-        )
-
-    out = scene_img.copy()
-
-    if settings.focus_blur_max > 0:
-        spread = float(np.percentile(dhat, 97) - np.percentile(dhat, 3))
-        if spread > 1e-6:
-            alpha_arr = (
-                np.asarray(plate_img.split()[3], np.float32) / 255.0
-            )
-            sel = alpha_arr > 0.5
-            d_p = (
-                float(np.median(dhat[sel]))
-                if sel.any()
-                else float(np.median(dhat))
-            )
-            t = (
-                np.clip(
-                    np.abs(dhat - d_p)
-                    / max(settings.dof_spread * spread, 1e-6),
-                    0,
-                    1,
-                )
-                ** 1.1
-            )
-            blurred = out.filter(
-                ImageFilter.GaussianBlur(settings.focus_blur_max)
-            )
-            arr = np.asarray(out, dtype=np.float32)
-            blr = np.asarray(blurred, dtype=np.float32)
-            out = Image.fromarray(
-                np.clip(
-                    arr * (1.0 - t)[..., None] + blr * t[..., None], 0, 255
-                ).astype(np.uint8)
-            )
-
-    clean_plate = sharpen_product(plate_img, settings=settings)
-    clean_plate = defringe_plate(clean_plate)
-
-    out = contact_shadow(out, clean_plate, settings=settings)
-
-    out.paste(clean_plate, (0, 0), clean_plate.split()[3])
-
-    if with_grain:
-        out = apply_grain(out, seed, settings=settings)
-
-    return out

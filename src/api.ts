@@ -1,29 +1,24 @@
 import type { TableShape } from './components/studio/types.ts'
 
-export interface SceneParams {
+export interface GenerateParams {
   seed: number
   width: number
   height: number
   prompt: string
-  negative_prompt: string
-  glossy: boolean
   table_visible: boolean
   table_shape: TableShape
 }
 
-export interface SceneResult {
-  scene_b64: string
-  depth_b64: string
+export interface PhotoGenerateParams {
   seed: number
   width: number
   height: number
-  seconds: number
+  prompt: string
 }
 
-export interface ComposeResult {
+export interface GenerateResult {
   image_b64: string
   seed: number
-  seconds?: number
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -41,23 +36,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-const PROXY_LIMIT_MS = 140_000
 const POLL_INTERVAL_MS = 4_000
-const POLL_ATTEMPTS = 90
-const COMPOSE_POLL_ATTEMPTS = 300
-
-async function withRecovery<T>(path: string, body: FormData, recoveryPath: string): Promise<T> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), PROXY_LIMIT_MS)
-  try {
-    return await request<T>(path, { method: 'POST', body, signal: controller.signal })
-  } catch (error) {
-    if (!wasSevered(error)) throw error
-    return pollRecovery<T>(recoveryPath, POLL_ATTEMPTS)
-  } finally {
-    clearTimeout(timeout)
-  }
-}
+const GENERATE_POLL_ATTEMPTS = 300
 
 function wasSevered(error: unknown): boolean {
   if (error instanceof TypeError) return true
@@ -94,33 +74,28 @@ export const api = {
     return response.blob()
   },
 
-  scene(params: SceneParams, depth: Blob): Promise<SceneResult> {
+  generate(i: { layout: Blob; plate: Blob; product: Blob | null }, params: GenerateParams): Promise<GenerateResult> {
     const body = new FormData()
+    body.set('layout', i.layout, 'layout.png')
+    body.set('plate', i.plate, 'plate.png')
+    if (i.product) body.set('product', i.product, 'product.png')
     body.set('params', JSON.stringify(params))
-    body.set('depth', depth, 'depth.png')
-    return withRecovery('/api/scene', body, `/api/scene-result/${params.seed}`)
+    return generateFlow(body, '/api/generate', `/api/result/${params.seed}`)
   },
 
-  compose(
-    plate: Blob,
-    scene: Blob,
-    depth: Blob,
-    params: { seed: number; glossy: boolean },
-  ): Promise<ComposeResult> {
+  generatePhoto(i: { product: Blob }, params: PhotoGenerateParams): Promise<GenerateResult> {
     const body = new FormData()
-    body.set('plate', plate, 'plate.png')
-    body.set('scene', scene, 'scene.jpg')
-    body.set('depth', depth, 'depth.png')
+    body.set('product', i.product, 'product.png')
     body.set('params', JSON.stringify(params))
-    return composeFlow(body, `/api/result/${params.seed}`)
+    return generateFlow(body, '/api/generate-photo', `/api/result/${params.seed}`)
   },
 }
 
-async function composeFlow(body: FormData, recoveryPath: string): Promise<ComposeResult> {
+async function generateFlow(body: FormData, submitPath: string, recoveryPath: string): Promise<GenerateResult> {
   try {
-    await request<{ seed: number; queued: boolean }>('/api/compose', { method: 'POST', body })
+    await request<{ seed: number; queued: boolean }>(submitPath, { method: 'POST', body })
   } catch (error) {
     if (!wasSevered(error)) throw error
   }
-  return pollRecovery<ComposeResult>(recoveryPath, COMPOSE_POLL_ATTEMPTS)
+  return pollRecovery<GenerateResult>(recoveryPath, GENERATE_POLL_ATTEMPTS)
 }

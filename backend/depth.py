@@ -13,7 +13,3 @@ def jpeg_bytes(img: Image.Image, quality: int = 95) -> bytes:
     img.save(buf, "JPEG", quality=quality)
     return buf.getvalue()
 
-
-def load_image(raw: bytes, mode: str) -> Image.Image:
-    return Image.open(io.BytesIO(raw)).convert(mode)
-

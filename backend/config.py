@@ -37,8 +37,6 @@ class GenerationSettings:
     edit_model: str = os.environ.get("GEN_EDIT_MODEL", "Qwen/Qwen-Image-Edit-2511")
     edit_steps: int = _env_int("GEN_EDIT_STEPS", 30)
     edit_guidance: float = _env_float("GEN_EDIT_GUIDANCE", 4.0)
-    max_attempts: int = _env_int("GEN_MAX_ATTEMPTS", 2)
-    max_divergence: float = _env_float("GEN_MAX_DIVERGENCE", 0.35)
     api_token: str = os.environ.get("API_TOKEN", "").strip()
 
 
@@ -50,20 +48,18 @@ EDIT_NEG = (
     "blurry, watermark, people"
 )
 
-LAYOUT_INSTRUCTION = (
-    "Picture 1 (Image 1) is the product packshot on a neutral gray background. "
-    "Picture 2 (Image 2) is a rough 3D room blockout layout mockup with a placeholder for the product. "
-    "Transform the 3D layout from Picture 2 into a photorealistic, high-end commercial photograph of: {scene}. "
-    "Strictly preserve the camera angle, perspective, spatial depth, and room layout from Picture 2. "
-    "Turn the flat 3D mockup planes from Picture 2 into realistic physical surfaces matching the scene: "
-    "replace the flat wall planes with realistic textured walls, "
-    "replace the floor plane with realistic flooring (such as hardwood, tile, stone, or concrete){table}, "
-    "and replace the ceiling plane with a realistic ceiling. "
-    "Do not keep the solid pastel 3D shader colors or flat CGI planes of Picture 2. "
-    "Place the exact product from Picture 1 in the position of the placeholder in Picture 2, "
-    "faithfully preserving its shape, proportions, packaging, artwork, and branding. "
-    "Relight the product to match the room lighting naturally, casting a realistic contact shadow "
-    "and surface reflection. Commercial advertising photography, crisp focus, photorealistic."
+RENDER_INSTRUCTION = (
+    "Picture 1 (Image 1) is a 3D layout preview: a plain blockout room with the real product "
+    "standing inside it. "
+    "Transform this layout into a photorealistic, high-end commercial photograph of: {scene}. "
+    "Strictly preserve the camera angle, perspective, framing, and the position of every object. "
+    "Do not change anything on the product: keep its exact shape, proportions, materials, colors, "
+    "artwork, text, and branding. "
+    "Replace the flat placeholder surfaces with realistic physical surfaces matching the scene: "
+    "textured walls, realistic flooring, realistic furniture surfaces under and around the product, "
+    "and a realistic ceiling. "
+    "Keep the lighting direction and shadows from the preview, and render a natural contact shadow "
+    "under the product. Commercial advertising photography, crisp focus, photorealistic."
 )
 
 
@@ -84,16 +80,9 @@ def photo_instruction(scene: str) -> str:
     )
 
 
-def layout_instruction(scene: str, table_visible: bool, table_shape: str = "box") -> str:
-    if not table_visible:
-        table = ""
-    elif table_shape == "cylinder":
-        table = ", replace the round cylinder block with a realistic round table or pedestal"
-    else:
-        table = ", replace the rectangular block with a realistic table, desk, or podium"
-    return LAYOUT_INSTRUCTION.format(
-        scene=scene.strip() or "a modern stylish interior with natural soft daylight",
-        table=table,
+def render_instruction(scene: str) -> str:
+    return RENDER_INSTRUCTION.format(
+        scene=scene.strip() or "a modern stylish interior with natural soft daylight"
     )
 
 
@@ -106,7 +95,5 @@ IMAGE_ENV = {
     "GEN_EDIT_MODEL": settings.edit_model,
     "GEN_EDIT_STEPS": str(settings.edit_steps),
     "GEN_EDIT_GUIDANCE": str(settings.edit_guidance),
-    "GEN_MAX_ATTEMPTS": str(settings.max_attempts),
-    "GEN_MAX_DIVERGENCE": str(settings.max_divergence),
     "U2NET_HOME": "/cache/u2net",
 }

@@ -18,16 +18,12 @@ export interface TableConfig {
   z: number
 }
 
-export type ProductData =
-  | { kind: 'photo'; url: string; aspect: number }
-  | { kind: 'model'; object: THREE.Object3D }
+export type ProductData = { kind: 'model'; object: THREE.Object3D }
 
 export interface StudioScene {
   setRoom(room: RoomConfig): void
   setTable(table: TableConfig): void
   setProduct(product: ProductData | null): void
-  setPhotoHeight(fraction: number): void
   captureSize(): { width: number; height: number }
   captureView(): string
-  capturePlate(): string
 }

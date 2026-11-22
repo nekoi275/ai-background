@@ -1,15 +1,4 @@
-import type { TableShape } from './components/studio/types.ts'
-
 export interface GenerateParams {
-  seed: number
-  width: number
-  height: number
-  prompt: string
-  table_visible: boolean
-  table_shape: TableShape
-}
-
-export interface PhotoGenerateParams {
   seed: number
   width: number
   height: number
@@ -74,16 +63,14 @@ export const api = {
     return response.blob()
   },
 
-  generate(i: { layout: Blob; plate: Blob; product: Blob | null }, params: GenerateParams): Promise<GenerateResult> {
+  generate(i: { render: Blob }, params: GenerateParams): Promise<GenerateResult> {
     const body = new FormData()
-    body.set('layout', i.layout, 'layout.png')
-    body.set('plate', i.plate, 'plate.png')
-    if (i.product) body.set('product', i.product, 'product.png')
+    body.set('render', i.render, 'render.png')
     body.set('params', JSON.stringify(params))
     return generateFlow(body, '/api/generate', `/api/result/${params.seed}`)
   },
 
-  generatePhoto(i: { product: Blob }, params: PhotoGenerateParams): Promise<GenerateResult> {
+  generatePhoto(i: { product: Blob }, params: GenerateParams): Promise<GenerateResult> {
     const body = new FormData()
     body.set('product', i.product, 'product.png')
     body.set('params', JSON.stringify(params))

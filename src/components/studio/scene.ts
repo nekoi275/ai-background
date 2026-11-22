@@ -7,9 +7,7 @@ import {
 } from './materials.ts'
 import {
   calculateCaptureDims,
-  capturePlatePass,
   renderCapture,
-  type RenderContext,
 } from './passes.ts'
 import type { RoomConfig, StudioScene, TableConfig, TableShape } from './types.ts'
 
@@ -28,6 +26,8 @@ export function createStudioScene(root: HTMLElement): StudioScene {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.shadowMap.enabled = true
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
   const scene = new THREE.Scene()
 
@@ -43,28 +43,31 @@ export function createStudioScene(root: HTMLElement): StudioScene {
 
   const roomMaterials = createRoomMaterials()
   const roomMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), roomMaterials.materials)
+  roomMesh.receiveShadow = true
   const tableMaterial = createTableMaterial()
   const tableMesh = new THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>(
     tableGeometry.box,
     tableMaterial,
   )
   tableMesh.visible = false
+  tableMesh.castShadow = true
+  tableMesh.receiveShadow = true
 
   const productRoot = new THREE.Group()
   scene.add(roomMesh, tableMesh, productRoot)
 
-  let billboard: THREE.Mesh | null = null
-  let photoAspect = 1
-
-scene.add(
-  new THREE.AmbientLight(0xffffff, 2.2),
-  new THREE.HemisphereLight(0xffffff, 0xcfc8bd, 0.35),
-)
-const key = new THREE.DirectionalLight(0xffffff, 0.8)
-key.position.set(3, 6, 4)
-const fill = new THREE.DirectionalLight(0xffffff, 0.3)
-fill.position.set(-4, 5, -3)
-scene.add(key, fill)
+  scene.add(
+    new THREE.AmbientLight(0xffffff, 0.5),
+    new THREE.HemisphereLight(0xffffff, 0x8d8579, 0.5),
+  )
+  const key = new THREE.DirectionalLight(0xfff0dd, 1.8)
+  key.castShadow = true
+  key.shadow.mapSize.set(2048, 2048)
+  key.shadow.bias = -0.0005
+  key.shadow.normalBias = 0.02
+  const fill = new THREE.DirectionalLight(0xdfe8ff, 0.35)
+  fill.position.set(-4, 5, -3)
+  scene.add(key, key.target, fill)
 
   const pmrem = new THREE.PMREMGenerator(renderer)
   const environmentTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
@@ -72,17 +75,10 @@ scene.add(key, fill)
 
   const room: RoomConfig = { width: 5, height: 3, depth: 5 }
   const table: TableConfig = { visible: false, shape: 'box', width: 0.6, depth: 0.6, height: 0.6, x: 0, z: 0 }
-  let photoHeight = 0.45
 
   new ResizeObserver(resize).observe(root)
 
   renderer.setAnimationLoop(() => {
-    if (billboard) {
-      billboard.rotation.y = Math.atan2(
-        camera.position.x - productRoot.position.x,
-        camera.position.z - productRoot.position.z,
-      )
-    }
     controls.update()
     clampPoint(camera.position)
     clampPoint(controls.target)
@@ -108,6 +104,16 @@ scene.add(key, fill)
   function applyRoom(): void {
     roomMesh.scale.set(room.width, room.height, room.depth)
     roomMesh.position.y = room.height / 2
+    const span = Math.max(room.width, room.height, room.depth)
+    key.position.set(3, 6, 4).normalize().multiplyScalar(span * 1.6)
+    const shadowCam = key.shadow.camera
+    shadowCam.left = -span
+    shadowCam.right = span
+    shadowCam.top = span
+    shadowCam.bottom = -span
+    shadowCam.near = 0.1
+    shadowCam.far = span * 4
+    shadowCam.updateProjectionMatrix()
   }
 
   function applyTable(): void {
@@ -122,11 +128,6 @@ scene.add(key, fill)
 
   function placeProduct(): void {
     productRoot.position.set(table.x, table.visible ? table.height : 0, table.z)
-    if (billboard) {
-      const height = photoHeight * room.height
-      billboard.scale.set(height * photoAspect, height, 1)
-      billboard.position.y = height / 2
-    }
   }
 
   function disposeProduct(): void {
@@ -143,24 +144,12 @@ scene.add(key, fill)
       })
       productRoot.remove(child)
     }
-    billboard = null
-  }
-
-  const renderCtx: RenderContext = {
-    renderer,
-    scene,
-    camera,
-    canvas,
-    roomMesh,
-    tableMesh,
-    productRoot,
   }
 
   const view: StudioScene = {
     setRoom(next) {
       Object.assign(room, next)
       applyRoom()
-      placeProduct()
     },
 
     setTable(next) {
@@ -171,42 +160,21 @@ scene.add(key, fill)
     setProduct(product) {
       disposeProduct()
       if (!product) return
-      if (product.kind === 'photo') {
-        photoAspect = product.aspect
-        const material = new THREE.MeshBasicMaterial({
-          transparent: true,
-          toneMapped: false,
-          side: THREE.DoubleSide,
-        })
-        billboard = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material)
-        billboard.name = 'photo-product'
-        productRoot.add(billboard)
-        new THREE.TextureLoader().load(product.url, (texture) => {
-          texture.colorSpace = THREE.SRGBColorSpace
-          material.map = texture
-          material.needsUpdate = true
-        })
-      } else {
-        productRoot.add(product.object)
-        product.object.traverse((node) => {
-          const mesh = node as THREE.Mesh
-          if (!mesh.isMesh) return
-          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-          for (const material of materials) {
-            const std = material as THREE.MeshStandardMaterial
-            if ('envMapIntensity' in std) {
-              std.envMap = environmentTexture
-              std.envMapIntensity = 1.4
-            }
+      productRoot.add(product.object)
+      product.object.traverse((node) => {
+        const mesh = node as THREE.Mesh
+        if (!mesh.isMesh) return
+        mesh.castShadow = true
+        mesh.receiveShadow = true
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        for (const material of materials) {
+          const std = material as THREE.MeshStandardMaterial
+          if ('envMapIntensity' in std) {
+            std.envMap = environmentTexture
+            std.envMapIntensity = 1.4
           }
-        })
-      }
-      placeProduct()
-    },
-
-    setPhotoHeight(fraction) {
-      photoHeight = fraction
-      placeProduct()
+        }
+      })
     },
 
     captureSize() {
@@ -215,11 +183,7 @@ scene.add(key, fill)
 
     captureView() {
       const dims = calculateCaptureDims(camera)
-      return renderCapture(renderer, scene, camera, canvas, dims.width, dims.height, () => {}, () => {})
-    },
-
-    capturePlate() {
-      return capturePlatePass(renderCtx, table.visible)
+      return renderCapture(renderer, scene, camera, canvas, dims.width, dims.height)
     },
   }
 

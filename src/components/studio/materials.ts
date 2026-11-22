@@ -15,7 +15,6 @@ export function createRoomMaterials(): RoomMaterials {
       color: WALL_COLOR,
       roughness: 0.9,
       side: THREE.BackSide,
-      toneMapped: false,
     })
   }
 
@@ -23,13 +22,11 @@ export function createRoomMaterials(): RoomMaterials {
     color: CEILING_COLOR,
     roughness: 0.95,
     side: THREE.BackSide,
-    toneMapped: false,
   })
   const floor = new THREE.MeshStandardMaterial({
     color: FLOOR_COLOR,
     roughness: 0.85,
     side: THREE.BackSide,
-    toneMapped: false,
   })
   return {
     materials: [wall(), wall(), ceiling, floor, wall(), wall()],
@@ -40,7 +37,6 @@ export function createTableMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color: TABLE_COLOR,
     roughness: 0.8,
-    toneMapped: false,
   })
 }
 

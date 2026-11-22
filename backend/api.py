@@ -12,22 +12,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from PIL import Image
 
-from .config import layout_instruction, photo_instruction, settings
+from .config import photo_instruction, render_instruction, settings
 from .cutout import alpha_trimmed, cutout_product, product_reference
 from .depth import jpeg_bytes, png_bytes
 from .storage import RecoveryStorage
 
 
 class GenerateParams(BaseModel):
-    seed: int | None = None
-    width: int = Field(default=1024, ge=256, le=2048)
-    height: int = Field(default=1024, ge=256, le=2048)
-    prompt: str = ""
-    table_visible: bool = False
-    table_shape: str = "box"
-
-
-class PhotoParams(BaseModel):
     seed: int | None = None
     width: int = Field(default=1024, ge=256, le=2048)
     height: int = Field(default=1024, ge=256, le=2048)
@@ -173,7 +164,7 @@ def create_app(
         params: str = Form("{}"),
         _auth: None = Depends(verify_token),
     ):
-        p = parse_form_json(params, PhotoParams)
+        p = parse_form_json(params, GenerateParams)
         seed = p.seed if p.seed is not None else random.randint(0, 2**31 - 1)
         try:
             src = Image.open(io.BytesIO(product.file.read())).convert("RGBA")
@@ -184,8 +175,8 @@ def create_app(
             raise HTTPException(400, f"Unreadable product: {exc}") from exc
         prompt = photo_instruction(p.prompt)
         print(f"[api.generate-photo] seed={seed} prompt={prompt!r} dims={p.width}x{p.height}", flush=True)
-        call = model_factory().photo_to_photo.spawn(
-            product_png=ref_png,
+        call = model_factory().image_to_photo.spawn(
+            image_png=ref_png,
             prompt=prompt,
             seed=seed,
             width=p.width,
@@ -197,28 +188,16 @@ def create_app(
 
     @fast.post("/api/generate")
     def generate(
-        layout: UploadFile = File(...),
-        plate: UploadFile = File(...),
-        product: UploadFile | None = File(None),
+        render: UploadFile = File(...),
         params: str = Form("{}"),
         _auth: None = Depends(verify_token),
     ):
         p = parse_form_json(params, GenerateParams)
         seed = p.seed if p.seed is not None else random.randint(0, 2**31 - 1)
-        plate_bytes = plate.file.read()
-        try:
-            src = Image.open(io.BytesIO(product.file.read() if product else plate_bytes)).convert("RGBA")
-            ref_png = png_bytes(product_reference(src))
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise HTTPException(400, f"Unreadable product: {exc}") from exc
-        prompt = layout_instruction(p.prompt, p.table_visible, p.table_shape)
+        prompt = render_instruction(p.prompt)
         print(f"[api.generate] seed={seed} prompt={prompt!r} dims={p.width}x{p.height}", flush=True)
-        call = model_factory().layout_to_photo.spawn(
-            product_png=ref_png,
-            layout_png=layout.file.read(),
-            plate_png=plate_bytes,
+        call = model_factory().image_to_photo.spawn(
+            image_png=render.file.read(),
             prompt=prompt,
             seed=seed,
             width=p.width,

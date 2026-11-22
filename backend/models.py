@@ -84,19 +84,19 @@ class Model:
         )
 
     @modal.method()
-    def photo_to_photo(
+    def image_to_photo(
         self,
-        product_png: bytes,
+        image_png: bytes,
         prompt: str,
         seed: int,
         width: int,
         height: int,
     ) -> bytes:
-        product = Image.open(io.BytesIO(product_png)).convert("RGB")
+        image = Image.open(io.BytesIO(image_png)).convert("RGB")
         rw, rh = max(256, (width // 16) * 16), max(256, (height // 16) * 16)
-        print(f"[gen-photo] seed={seed} prompt={prompt!r} dims={rw}x{rh}", flush=True)
+        print(f"[gen] seed={seed} prompt={prompt!r} dims={rw}x{rh}", flush=True)
         out = self.pipe(
-            image=[product],
+            image=[image],
             prompt=prompt,
             negative_prompt=EDIT_NEG,
             true_cfg_scale=settings.edit_guidance,
@@ -105,57 +105,7 @@ class Model:
             height=rh,
             generator=self.torch.Generator("cuda").manual_seed(seed),
         ).images[0]
-        if out.size != (rw, rh):
-            out = out.resize((rw, rh), Image.Resampling.LANCZOS)
         if out.size != (width, height):
             out = out.resize((width, height), Image.Resampling.LANCZOS)
         return jpeg_bytes(out)
-
-    @modal.method()
-    def layout_to_photo(
-        self,
-        product_png: bytes,
-        layout_png: bytes,
-        plate_png: bytes,
-        prompt: str,
-        seed: int,
-        width: int,
-        height: int,
-    ) -> bytes:
-        from .compositing import restore_product
-
-        product = Image.open(io.BytesIO(product_png)).convert("RGB")
-        layout = Image.open(io.BytesIO(layout_png)).convert("RGB")
-        plate = Image.open(io.BytesIO(plate_png)).convert("RGBA")
-        rw, rh = max(256, (width // 16) * 16), max(256, (height // 16) * 16)
-        layout = layout.resize((rw, rh), Image.Resampling.LANCZOS)
-
-        best: Image.Image | None = None
-        best_div = 9.0
-        for attempt in range(settings.max_attempts):
-            curr_seed = seed + attempt
-            print(f"[gen] attempt={attempt + 1}/{settings.max_attempts} seed={curr_seed} prompt={prompt!r}", flush=True)
-            out = self.pipe(
-                image=[product, layout],
-                prompt=prompt,
-                negative_prompt=EDIT_NEG,
-                true_cfg_scale=settings.edit_guidance,
-                num_inference_steps=settings.edit_steps,
-                width=rw,
-                height=rh,
-                generator=self.torch.Generator("cuda").manual_seed(curr_seed),
-            ).images[0]
-            if out.size != (rw, rh):
-                out = out.resize((rw, rh), Image.Resampling.LANCZOS)
-            final, div = restore_product(out, plate)
-            print(f"[gen] seed={curr_seed} divergence={div:.3f}", flush=True)
-            if div < best_div:
-                best, best_div = final, div
-            if div <= settings.max_divergence:
-                break
-        if best is None:
-            raise RuntimeError("generation produced no result")
-        if best.size != (width, height):
-            best = best.resize((width, height), Image.Resampling.LANCZOS)
-        return jpeg_bytes(best)
 

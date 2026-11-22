@@ -17,7 +17,7 @@ interface LoadedProduct {
   kind: 'photo' | 'model'
   name: string
   details: string
-  data: ProductData
+  data: ProductData | null
   previewUrl: string | null
   sourcePng: Blob | null
   cutoutPng: Blob | null
@@ -49,7 +49,6 @@ const cutoutTip = $('cutout-tip')
 const cutoutAiButton = $<HTMLButtonElement>('cutout-ai')
 const cutoutError = $('cutout-error')
 
-const photoControls = $('photo-controls')
 const modelInfo = $('model-info')
 const shotPreview = $<HTMLImageElement>('shot-preview')
 const shotFigure = $('shot-figure')
@@ -71,7 +70,6 @@ const tableInputs = {
   x: $<HTMLInputElement>('table-x'),
   z: $<HTMLInputElement>('table-z'),
 }
-const photoHeightInput = $<HTMLInputElement>('photo-height')
 
 const scene = createStudioScene($('scene'))
 const dropzone = setupDropzone($('dropzone'), (file) => void handleProductFile(file))
@@ -169,7 +167,7 @@ async function handleProductFile(file: File): Promise<void> {
         kind: 'photo',
         name: file.name,
         details: `Photo · ${prepared.cutout.width} × ${prepared.cutout.height} px`,
-        data: { kind: 'photo', url: prepared.cutout.url, aspect: prepared.cutout.aspect },
+        data: null,
         previewUrl: prepared.cutout.url,
         sourcePng: prepared.sourcePng,
         cutoutPng: prepared.cutout.png,
@@ -213,12 +211,10 @@ async function upgradePhotoCutout(): Promise<void> {
   try {
     const cutout = await aiPhotoCutout(product.sourcePng, api.cutout)
     if (product.previewUrl) URL.revokeObjectURL(product.previewUrl)
-    product.data = { kind: 'photo', url: cutout.url, aspect: cutout.aspect }
     product.previewUrl = cutout.url
     product.cutoutPng = cutout.png
     product.details = `Photo · ${cutout.width} × ${cutout.height} px`
     product.canUpgradeCutout = false
-    scene.setProduct(product.data)
     dropzone.setFilled(product.name, product.previewUrl)
     showProductCard()
     updateNav()
@@ -242,7 +238,6 @@ function showProductCard(): void {
   productBadge.classList.toggle('product-card__badge--model', product.kind === 'model')
   productName.textContent = product.name
   productDetails.textContent = product.details
-  photoControls.hidden = product.kind !== 'photo'
   modelInfo.hidden = product.kind !== 'model'
   if (product.kind === 'model') modelInfo.textContent = product.details
   cutoutTip.hidden = !(product.kind === 'photo' && product.canUpgradeCutout)
@@ -299,7 +294,6 @@ function applyScene(): void {
   $('table-controls').classList.toggle('controls__group--disabled', !table.visible)
   scene.setRoom(room)
   scene.setTable(table)
-  if (product?.kind === 'photo') scene.setPhotoHeight(Number(photoHeightInput.value) / 100)
   updateSliderArrows()
 }
 
@@ -312,7 +306,6 @@ function syncControlOutputs(): void {
   setOut('table-height', `${Number(tableInputs.height.value).toFixed(2)} m`)
   setOut('table-x', `${Number(tableInputs.x.value).toFixed(2)} m`)
   setOut('table-z', `${Number(tableInputs.z.value).toFixed(2)} m`)
-  setOut('photo-height', `${photoHeightInput.value}%`)
 }
 
 function stepSlider(input: HTMLInputElement, dir: number, stepDelta = 1): void {
@@ -369,7 +362,6 @@ for (const input of Object.values(roomInputs)) {
 for (const input of Object.values(tableInputs)) {
   input.addEventListener('input', applyScene)
 }
-photoHeightInput.addEventListener('input', applyScene)
 setupSliderArrows()
 
 function formatSize(size: { x: number; y: number; z: number }): string {
@@ -398,20 +390,14 @@ async function generate(): Promise<void> {
         { seed, width: PHOTO_SIZE.width, height: PHOTO_SIZE.height, prompt: promptInput.value.trim() },
       )
     } else {
-      resultView.showStatus('Preparing the shot…')
+      resultView.showStatus('Rendering the scene…')
       const frame = scene.captureSize()
-      const layout = dataUrlToBlob(scene.captureView())
-      const plate = dataUrlToBlob(scene.capturePlate())
-      const table = currentTable()
+      const render = dataUrlToBlob(scene.captureView())
 
       resultView.showStatus('Generating the photo…')
       result = await api.generate(
-        { layout, plate, product: product.cutoutPng },
-        {
-          seed, width: frame.width, height: frame.height,
-          prompt: promptInput.value.trim(),
-          table_visible: table.visible, table_shape: table.shape,
-        },
+        { render },
+        { seed, width: frame.width, height: frame.height, prompt: promptInput.value.trim() },
       )
     }
     resultReached = true
